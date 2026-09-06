@@ -1,5 +1,12 @@
 """experiment-design-kit: effect sizes, sample-size, power, MDE, and A/B simulation."""
 
+from .power import (
+    power_curve,
+    power_one_sample,
+    power_proportion,
+    power_two_sample,
+    required_sample_size,
+)
 from .stats import (
     ProportionTestResult,
     SampleSizeResult,
@@ -27,4 +34,9 @@ __all__ = [
     "two_proportion_z",
     "two_sample_t_sample_size",
     "welch_t",
+    "power_curve",
+    "power_one_sample",
+    "power_proportion",
+    "power_two_sample",
+    "required_sample_size",
 ]
