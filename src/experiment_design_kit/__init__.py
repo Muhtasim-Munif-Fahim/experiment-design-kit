@@ -7,6 +7,18 @@ from .mde import (
     minimum_detectable_effect_proportion,
     minimum_detectable_effect_raw,
 )
+from .simulation import (
+    ABTestResult,
+    ChiSquareResult,
+    SimulatedContinuousOutcome,
+    SimulatedProportionOutcome,
+    chi_square_significance,
+    run_continuous_ab_test,
+    run_proportion_ab_test,
+    simulate_continuous,
+    simulate_proportion,
+    t_test_significance,
+)
 from .power import (
     power_curve,
     power_one_sample,
@@ -36,6 +48,10 @@ __all__ = [
     "TTestResult",
     "MDEResult",
     "ProportionMDE",
+    "ABTestResult",
+    "ChiSquareResult",
+    "SimulatedContinuousOutcome",
+    "SimulatedProportionOutcome",
     "cohen_h",
     "cohens_d",
     "pooled_t",
@@ -51,4 +67,10 @@ __all__ = [
     "minimum_detectable_effect",
     "minimum_detectable_effect_proportion",
     "minimum_detectable_effect_raw",
+    "chi_square_significance",
+    "run_continuous_ab_test",
+    "run_proportion_ab_test",
+    "simulate_continuous",
+    "simulate_proportion",
+    "t_test_significance",
 ]
