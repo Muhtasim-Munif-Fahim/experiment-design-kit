@@ -1,5 +1,12 @@
 """experiment-design-kit: effect sizes, sample-size, power, MDE, and A/B simulation."""
 
+from .mde import (
+    MDEResult,
+    ProportionMDE,
+    minimum_detectable_effect,
+    minimum_detectable_effect_proportion,
+    minimum_detectable_effect_raw,
+)
 from .power import (
     power_curve,
     power_one_sample,
@@ -27,6 +34,8 @@ __all__ = [
     "ProportionTestResult",
     "SampleSizeResult",
     "TTestResult",
+    "MDEResult",
+    "ProportionMDE",
     "cohen_h",
     "cohens_d",
     "pooled_t",
@@ -39,4 +48,7 @@ __all__ = [
     "power_proportion",
     "power_two_sample",
     "required_sample_size",
+    "minimum_detectable_effect",
+    "minimum_detectable_effect_proportion",
+    "minimum_detectable_effect_raw",
 ]

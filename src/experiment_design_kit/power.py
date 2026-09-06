@@ -13,7 +13,7 @@ import math
 
 from scipy import stats as sp
 
-from .stats import SampleSizeResult, cohen_h
+from .stats import SampleSizeResult
 
 
 def power_two_sample(effect_size: float, n_per_group: int, alpha: float = 0.05) -> float:
