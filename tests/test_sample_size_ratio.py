@@ -1,7 +1,6 @@
 """Tests for sample-size ratio optimization."""
 from __future__ import annotations
 
-import math
 
 import pytest
 
