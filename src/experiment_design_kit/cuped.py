@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 import numpy as np
 
@@ -64,9 +63,6 @@ def cuped_adjust(
 
     c_outcomes = outcomes[mask]
     t_outcomes = outcomes[~mask]
-    c_cov = covariates[mask]
-    t_cov = covariates[~mask]
-
     c_mean = float(np.mean(c_outcomes))
     t_mean = float(np.mean(t_outcomes))
     effect = t_mean - c_mean
@@ -81,7 +77,6 @@ def cuped_adjust(
         theta = float(np.mean(cov_centered * outcome_centered) / cov_var)
         adj_outcomes = outcomes - theta * cov_centered
 
-    adj_c = adj_outcomes[mask]
     adj_var = float(np.var(adj_outcomes, ddof=0))
     raw_var = float(np.var(outcomes, ddof=0))
     reduction = adj_var / raw_var if raw_var > 0 else 1.0

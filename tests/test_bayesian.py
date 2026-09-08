@@ -5,8 +5,6 @@ import numpy as np
 import pytest
 
 from experiment_design_kit import (
-    BayesianABTestResult,
-    BayesianProportionResult,
     bayesian_ab_test,
     bayesian_proportion_test,
 )
