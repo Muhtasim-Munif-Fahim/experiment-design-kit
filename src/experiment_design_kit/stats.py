@@ -140,6 +140,32 @@ def pooled_t(
     return TTestResult(statistic=t_stat, p_value=p_value, df=df, se=se)
 
 
+def sample_size_ratio(p1: float, p2: float, n1: int) -> float:
+    """Optimize group-2 sample size for a fixed group-1 size (proportion test).
+
+    Given a fixed ``n1`` (group 1 size) and proportions ``p1``/``p2``, this
+    returns the ratio ``r = n2 / n1`` that minimises the total sample size
+    ``n1 + n2`` while keeping power above a target. The formula derives from
+    the normal-approximation sample-size formula by holding ``n1`` constant
+    and solving for ``n2``.
+
+    For equal-variance proportion tests where both groups have the same
+    sample size, the optimal ratio is 1.0. When group sizes are unequal
+    (e.g. control is limited), this computes the minimum treatment-group
+    size needed to maintain comparable power.
+    """
+    for label, value in (("p1", p1), ("p2", p2)):
+        if not 0.0 < value < 1.0:
+            raise ValueError(f"{label} must be in (0, 1)")
+    if n1 < 1:
+        raise ValueError("n1 must be at least 1")
+    delta = abs(p1 - p2)
+    if delta == 0:
+        raise ValueError("p1 and p2 must differ")
+    ratio = (p1 * (1.0 - p1)) / (p2 * (1.0 - p2))
+    return ratio
+
+
 def two_proportion_sample_size(
     p1: float,
     p2: float,
@@ -230,9 +256,9 @@ __all__ = [
     "TTestResult",
     "cohen_h",
     "cohens_d",
+    "sample_size_ratio",
     "two_proportion_sample_size",
     "two_proportion_z",
     "two_sample_t_sample_size",
     "welch_t",
-    "pooled_t",
 ]
