@@ -1,6 +1,13 @@
 """experiment-design-kit: effect sizes, sample-size, power, MDE, and A/B simulation."""
 
+from .bayesian import (
+    BayesianABTestResult,
+    BayesianProportionResult,
+    bayesian_ab_test,
+    bayesian_proportion_test,
+)
 from .cli import main
+from .cuped import CUPEDResult, cuped_adjust
 from .mde import (
     MDEResult,
     ProportionMDE,
@@ -52,6 +59,12 @@ __version__ = "0.1.0"
 __all__ = [
     "__version__",
     "main",
+    "BayesianABTestResult",
+    "BayesianProportionResult",
+    "bayesian_ab_test",
+    "bayesian_proportion_test",
+    "CUPEDResult",
+    "cuped_adjust",
     "ProportionTestResult",
     "SampleSizeResult",
     "TTestResult",
