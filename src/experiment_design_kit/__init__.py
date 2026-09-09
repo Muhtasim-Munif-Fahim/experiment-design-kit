@@ -41,6 +41,13 @@ from .simulation import (
     simulate_proportion,
     t_test_significance,
 )
+from .sequential import (
+    SequentialResult,
+    SequentialReport,
+    always_valid_pvalue,
+    sequential_mean_test,
+    sequential_proportion_test,
+)
 from .stats import (
     ProportionTestResult,
     SampleSizeResult,
@@ -77,6 +84,9 @@ __all__ = [
     "ReportData",
     "ProportionScenario",
     "ContinuousScenario",
+    "always_valid_pvalue",
+    "sequential_mean_test",
+    "sequential_proportion_test",
     "cohen_h",
     "cohens_d",
     "pooled_t",

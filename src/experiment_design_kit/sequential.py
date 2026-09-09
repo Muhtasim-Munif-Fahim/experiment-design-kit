@@ -126,6 +126,79 @@ def sequential_proportion_test(
     return report
 
 
+def sequential_mean_test(
+    means: List[float],
+    sems: List[float],
+    *,
+    null_mean: float = 0.0,
+    alpha: float = 0.05,
+    m: float = 0.01,
+    stop_on_significant: bool = False,
+) -> SequentialReport:
+    """Sequential z-test for means with always-valid p-values.
+
+    Parameters
+    ----------
+    means:
+        Sample mean at each look (cumulative, not incremental).
+    sems:
+        Standard error of the mean at each look (cumulative).
+    null_mean:
+        Null hypothesis mean.
+    alpha:
+        Nominal false-positive rate.
+    m:
+        Mixture parameter for the mSPRT correction.
+    stop_on_significant:
+        Stop after the first significant look.
+    """
+    if len(means) != len(sems):
+        raise ValueError("means and sems must have the same length")
+    if not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be in (0, 1)")
+    if m <= 0:
+        raise ValueError("m must be positive")
+
+    report = SequentialReport()
+    first_significant = -1
+
+    for i, (mean, sem) in enumerate(zip(means, sems)):
+        if sem <= 0:
+            raise ValueError("sems must be strictly positive")
+        z = abs(mean - null_mean) / sem
+        always_valid_pvalue = -0.5 * (z ** 2) / (1.0 + m * (i + 1))
+        always_valid_pvalue = math.exp(always_valid_pvalue)
+        always_valid_pvalue = min(1.0, max(0.0, always_valid_pvalue))
+        p_value = 2.0 * sp.norm.sf(z)
+        significant = always_valid_pvalue < alpha
+
+        report.results.append(
+            SequentialResult(
+                look=i + 1,
+                z_statistic=z,
+                p_value=float(p_value),
+                always_valid_pvalue=always_valid_pvalue,
+                alpha=alpha,
+                significant=significant,
+                cumulative_n=i + 1,
+            )
+        )
+
+        if significant and first_significant < 0:
+            first_significant = i + 1
+            report.final_pvalue = always_valid_pvalue
+
+        if significant and stop_on_significant and not report.stopped:
+            report.stopped = True
+            report.stopped_at = i + 1
+            report.final_pvalue = always_valid_pvalue
+            break
+
+    if report.results:
+        report.final_pvalue = report.results[-1].always_valid_pvalue
+    return report
+
+
 def always_valid_pvalue(z_statistic: float, n: int, m: float = 0.01) -> float:
     """Compute the always-valid p-value for a z-statistic.
 
@@ -149,4 +222,5 @@ __all__ = [
     "SequentialReport",
     "always_valid_pvalue",
     "sequential_proportion_test",
+    "sequential_mean_test",
 ]
