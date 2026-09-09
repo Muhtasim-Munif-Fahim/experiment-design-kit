@@ -87,6 +87,8 @@ __all__ = [
     "always_valid_pvalue",
     "sequential_mean_test",
     "sequential_proportion_test",
+    "SequentialResult",
+    "SequentialReport",
     "cohen_h",
     "cohens_d",
     "pooled_t",

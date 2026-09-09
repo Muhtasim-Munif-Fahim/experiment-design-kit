@@ -1,10 +1,9 @@
 """Tests for sequential_mean_test."""
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
-from experiment_design_kit import SequentialReport, sequential_mean_test
+from experiment_design_kit import sequential_mean_test
 
 
 def test_significant_when_mean_far_from_null() -> None:
