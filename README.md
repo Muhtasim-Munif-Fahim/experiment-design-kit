@@ -5,8 +5,9 @@ experiments and controlled trials. It provides effect-size and sample-size
 calculators (two-proportion z-test, two-sample and Welch's t-test),
 statistical power analysis with configurable alpha/power, a minimum
 detectable effect calculator, CUPED variance reduction for continuous
-metrics, and a seedable A/B test outcome simulator with significance
-checking (chi-square and t-test).
+metrics, sequential always-valid inference (mSPRT p-values and
+alpha-spending bounds) for optional stopping, and a seedable A/B test
+outcome simulator with significance checking (chi-square and t-test).
 
 ## Install
 
@@ -34,6 +35,14 @@ experiment-design-kit cuped --n 500 --correlation 0.7 --effect 0.5
 
 # CUPED on a CSV with columns outcome,treatment,covariate.
 experiment-design-kit cuped --csv path/to/metrics.csv --fit-on pooled
+
+# Sequential two-proportion A/B looks (incremental counts) with always-valid p-values.
+experiment-design-kit sequential --method two-proportion \
+  --control-successes 10,12,11 --control-totals 100,100,100 \
+  --treatment-successes 18,20,19 --treatment-totals 100,100,100
+
+# False-positive rates under peeking: naive repeated testing vs sequential bounds.
+experiment-design-kit sequential --method peeking --looks 8 --n-per-look 200 --trials 400
 
 # Run the full demo workflow and write a Markdown report.
 experiment-design-kit report -o examples/output/demo_report.md
@@ -99,4 +108,59 @@ only. The default `fit_on="pooled"` is the usual choice when `X` is
 pre-experiment and therefore independent of assignment. Pass a CSV with
 columns `outcome`, `treatment`, and `covariate` to the `cuped` CLI to
 run the same adjustment on your own data.
+
+## Sequential testing (always-valid p-values and alpha-spending)
+
+Peeking at a fixed-horizon p-value more than once inflates the Type I
+error. Two lightweight corrections are included:
+
+* **Always-valid p-values** from a mixture SPRT (Johari, Pekelis, Walsh).
+  `p_av < alpha` at any look is a valid level-`alpha` rejection, even
+  under continuous monitoring. The p-value process is the running minimum
+  of `1/Λ_n`, where `Λ_n` is the normal-mixture likelihood ratio.
+* **Lan-DeMets alpha-spending** for a *planned* sequence of looks.
+  O'Brien-Fleming spends almost nothing early and almost all of `alpha`
+  at the end; Pocock spends more evenly. A look is significant when the
+  naive p-value is below the spending *increment* for that look.
+
+```python
+from experiment_design_kit import (
+    sequential_two_proportion_test,
+    sequential_two_sample_mean_test,
+    simulate_peeking_fpr,
+)
+
+# Incremental conversion counts at three peeks (control vs treatment).
+ab = sequential_two_proportion_test(
+    control_successes=[10, 12, 11],
+    control_totals=[100, 100, 100],
+    treatment_successes=[18, 20, 19],
+    treatment_totals=[100, 100, 100],
+    alpha=0.05,
+    boundary="always-valid",  # or "pocock" / "obrien-fleming"
+)
+print(ab.final_pvalue, ab.is_significant, ab.naive_significant)
+
+# Snapshot means (cumulative mean, SD, n per arm).
+means = sequential_two_sample_mean_test(
+    control_means=[0.0, 0.02],
+    control_sds=[1.0, 1.0],
+    control_ns=[200, 400],
+    treatment_means=[0.15, 0.18],
+    treatment_sds=[1.0, 1.0],
+    treatment_ns=[200, 400],
+)
+
+# Under H0, naive repeated testing over-rejects; sequential bounds do not.
+fpr = simulate_peeking_fpr(
+    n_looks=8, n_per_look=200, n_trials=400, metric="proportion", seed=0
+)
+print(fpr.naive_fpr, fpr.always_valid_fpr, fpr.pocock_fpr, fpr.obrien_fleming_fpr)
+```
+
+One-sample helpers `sequential_proportion_test` (vs `null_p`) and
+`sequential_mean_test` (vs `null_mean`) cover non-A/B monitoring. Mixture
+parameter `m` (default `0.01`) is the relative variance of the mixing
+distribution: smaller `m` is more conservative. Spending functions are
+evaluated at the information fraction `t = n / n_planned`.
 

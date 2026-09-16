@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -42,11 +42,18 @@ from .simulation import (
     t_test_significance,
 )
 from .sequential import (
+    PeekingFPRResult,
     SequentialResult,
     SequentialReport,
+    alpha_spent,
     always_valid_pvalue,
+    mixture_likelihood_ratio,
     sequential_mean_test,
     sequential_proportion_test,
+    sequential_two_proportion_test,
+    sequential_two_sample_mean_test,
+    simulate_peeking_fpr,
+    spending_increment,
 )
 from .stats import (
     ProportionTestResult,
@@ -88,10 +95,17 @@ __all__ = [
     "ProportionScenario",
     "ContinuousScenario",
     "always_valid_pvalue",
+    "alpha_spent",
+    "mixture_likelihood_ratio",
     "sequential_mean_test",
     "sequential_proportion_test",
+    "sequential_two_proportion_test",
+    "sequential_two_sample_mean_test",
+    "simulate_peeking_fpr",
+    "spending_increment",
     "SequentialResult",
     "SequentialReport",
+    "PeekingFPRResult",
     "cohen_h",
     "cohens_d",
     "pooled_t",

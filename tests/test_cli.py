@@ -119,6 +119,79 @@ def test_cuped_from_csv(tmp_path: Path) -> None:
     assert "CUPED effect:" in out
 
 
+def test_sequential_peeking_fpr() -> None:
+    out = _run(
+        [
+            "sequential",
+            "--method",
+            "peeking",
+            "--looks",
+            "6",
+            "--n-per-look",
+            "150",
+            "--trials",
+            "200",
+            "--seed",
+            "0",
+        ]
+    )
+    assert "naive repeated testing" in out
+    assert "always-valid mSPRT" in out
+    assert "Pocock spending" in out
+    assert "O'Brien-Fleming" in out
+    naive = float(re.search(r"naive repeated testing : ([\d.]+)", out).group(1))
+    av = float(re.search(r"always-valid mSPRT     : ([\d.]+)", out).group(1))
+    assert naive > av
+
+
+def test_sequential_two_proportion() -> None:
+    out = _run(
+        [
+            "sequential",
+            "--method",
+            "two-proportion",
+            "--control-successes",
+            "10,10,10",
+            "--control-totals",
+            "100,100,100",
+            "--treatment-successes",
+            "20,25,30",
+            "--treatment-totals",
+            "100,100,100",
+        ]
+    )
+    assert "always-valid p" in out
+    assert "boundary: always-valid" in out
+    assert "final always-valid p:" in out
+
+
+def test_sequential_mean() -> None:
+    out = _run(
+        [
+            "sequential",
+            "--method",
+            "mean",
+            "--means",
+            "0.1,0.5,1.2",
+            "--sems",
+            "0.4,0.2,0.1",
+            "--boundary",
+            "pocock",
+        ]
+    )
+    assert "boundary: pocock" in out
+    assert "naive p" in out
+
+
+def test_sequential_missing_args() -> None:
+    buf = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(buf), redirect_stderr(err):
+        rc = main(["sequential", "--method", "proportion"])
+    assert rc == 2
+    assert "successes" in err.getvalue()
+
+
 def test_cuped_missing_csv_columns(tmp_path: Path) -> None:
     bad = tmp_path / "bad.csv"
     bad.write_text("a,b\n1,2\n", encoding="utf-8")
