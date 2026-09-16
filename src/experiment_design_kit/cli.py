@@ -13,6 +13,13 @@ from .cuped import cuped_adjust, simulate_cuped_data
 from .mde import minimum_detectable_effect, minimum_detectable_effect_proportion, minimum_detectable_effect_raw
 from .power import power_one_sample, power_proportion, power_two_sample
 from .reporting import compose_demo_report
+from .sequential import (
+    sequential_mean_test,
+    sequential_proportion_test,
+    sequential_two_proportion_test,
+    sequential_two_sample_mean_test,
+    simulate_peeking_fpr,
+)
 from .stats import cohen_h, two_proportion_sample_size, two_sample_t_sample_size
 from .simulation import run_continuous_ab_test, run_proportion_ab_test
 
@@ -38,6 +45,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Apply CUPED variance reduction to a continuous metric (synthetic or CSV)",
     )
     _add_cuped_args(cuped)
+
+    seq = sub.add_parser(
+        "sequential",
+        help="Always-valid / alpha-spending sequential tests, or a peeking FPR simulation",
+    )
+    _add_sequential_args(seq)
 
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
@@ -109,6 +122,210 @@ def _add_cuped_args(p: argparse.ArgumentParser) -> None:
         default="pooled",
         help="Estimate theta from pooled data (default) or control only",
     )
+
+
+def _add_sequential_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--method",
+        choices=["proportion", "two-proportion", "mean", "two-mean", "peeking"],
+        required=True,
+        help="One-sample proportion/mean, two-arm A/B, or a peeking FPR simulation",
+    )
+    p.add_argument(
+        "--boundary",
+        choices=["always-valid", "pocock", "obrien-fleming"],
+        default="always-valid",
+        help="Rejection boundary (default: always-valid mSPRT)",
+    )
+    p.add_argument("--alpha", type=float, default=0.05, help="Significance level (default: 0.05)")
+    p.add_argument("--m", type=float, default=0.01, help="mSPRT mixture parameter (default: 0.01)")
+    p.add_argument(
+        "--stop-on-significant",
+        action="store_true",
+        help="Stop after the first significant look",
+    )
+    p.add_argument("--null-p", type=float, default=0.5, help="Null proportion (proportion method)")
+    p.add_argument("--null-mean", type=float, default=0.0, help="Null mean (mean method)")
+    p.add_argument("--successes", default=None, help="Incremental successes per look (comma-separated)")
+    p.add_argument("--totals", default=None, help="Incremental sample sizes per look (comma-separated)")
+    p.add_argument("--means", default=None, help="Cumulative means per look (comma-separated)")
+    p.add_argument("--sems", default=None, help="Cumulative SEMs per look (comma-separated)")
+    p.add_argument("--ns", default=None, help="Optional cumulative sample sizes per look (comma-separated)")
+    p.add_argument("--control-successes", default=None, help="Incremental control successes (comma-separated)")
+    p.add_argument("--control-totals", default=None, help="Incremental control sample sizes (comma-separated)")
+    p.add_argument("--treatment-successes", default=None, help="Incremental treatment successes (comma-separated)")
+    p.add_argument("--treatment-totals", default=None, help="Incremental treatment sample sizes (comma-separated)")
+    p.add_argument("--control-means", default=None, help="Cumulative control means (comma-separated)")
+    p.add_argument("--control-sds", default=None, help="Cumulative control SDs (comma-separated)")
+    p.add_argument("--control-ns", default=None, help="Cumulative control sample sizes (comma-separated)")
+    p.add_argument("--treatment-means", default=None, help="Cumulative treatment means (comma-separated)")
+    p.add_argument("--treatment-sds", default=None, help="Cumulative treatment SDs (comma-separated)")
+    p.add_argument("--treatment-ns", default=None, help="Cumulative treatment sample sizes (comma-separated)")
+    p.add_argument("--looks", type=int, default=8, help="Peeking simulation: number of looks (default: 8)")
+    p.add_argument(
+        "--n-per-look",
+        type=int,
+        default=200,
+        help="Peeking simulation: observations per arm per look (default: 200)",
+    )
+    p.add_argument("--trials", type=int, default=400, help="Peeking simulation: Monte Carlo trials (default: 400)")
+    p.add_argument("--seed", type=int, default=0, help="Peeking simulation: RNG seed (default: 0)")
+    p.add_argument(
+        "--metric",
+        choices=["proportion", "mean"],
+        default="proportion",
+        help="Peeking simulation metric (default: proportion)",
+    )
+
+
+def _parse_ints(text: str, flag: str) -> list[int]:
+    try:
+        values = [int(float(part.strip())) for part in text.split(",") if part.strip()]
+    except ValueError as exc:
+        raise ValueError(f"{flag}: expected comma-separated integers") from exc
+    if not values:
+        raise ValueError(f"{flag}: expected at least one integer")
+    return values
+
+
+def _parse_floats(text: str, flag: str) -> list[float]:
+    try:
+        values = [float(part.strip()) for part in text.split(",") if part.strip()]
+    except ValueError as exc:
+        raise ValueError(f"{flag}: expected comma-separated numbers") from exc
+    if not values:
+        raise ValueError(f"{flag}: expected at least one number")
+    return values
+
+
+def _print_sequential_report(report) -> None:
+    print(f"boundary: {report.boundary}")
+    print(
+        f"{'look':>4}  {'n':>8}  {'z':>8}  {'naive p':>10}  "
+        f"{'always-valid p':>14}  {'spent':>8}  {'sig':>3}"
+    )
+    for r in report.results:
+        sig = "yes" if r.significant else "no"
+        print(
+            f"{r.look:4d}  {r.cumulative_n:8d}  {r.z_statistic:8.3f}  "
+            f"{r.p_value:10.4f}  {r.always_valid_pvalue:14.4f}  "
+            f"{r.alpha_spent:8.4f}  {sig:>3}"
+        )
+    print(f"significant: {'yes' if report.is_significant else 'no'}")
+    print(f"naive repeated testing significant: {'yes' if report.naive_significant else 'no'}")
+    print(f"final always-valid p: {report.final_pvalue:.4f}")
+    if report.stopped:
+        print(f"stopped at look: {report.stopped_at}")
+
+
+def cmd_sequential(args: argparse.Namespace) -> int:
+    try:
+        if args.method == "peeking":
+            result = simulate_peeking_fpr(
+                n_looks=args.looks,
+                n_per_look=args.n_per_look,
+                n_trials=args.trials,
+                alpha=args.alpha,
+                metric=args.metric,
+                m=args.m,
+                seed=args.seed,
+            )
+            print(f"Peeking false-positive rates under H0 (alpha={result.alpha})")
+            print(
+                f"metric: {result.metric}  looks: {result.n_looks}  "
+                f"n/look/group: {result.n_per_look}  trials: {result.n_trials}  seed: {result.seed}"
+            )
+            print(f"naive repeated testing : {result.naive_fpr:.3f}   (typically inflated)")
+            print(f"always-valid mSPRT     : {result.always_valid_fpr:.3f}")
+            print(f"Pocock spending        : {result.pocock_fpr:.3f}")
+            print(f"O'Brien-Fleming        : {result.obrien_fleming_fpr:.3f}")
+            return 0
+
+        if args.method == "proportion":
+            if not args.successes or not args.totals:
+                print("sequential: --successes and --totals are required", file=sys.stderr)
+                return 2
+            report = sequential_proportion_test(
+                _parse_ints(args.successes, "--successes"),
+                _parse_ints(args.totals, "--totals"),
+                alpha=args.alpha,
+                m=args.m,
+                stop_on_significant=args.stop_on_significant,
+                null_p=args.null_p,
+                boundary=args.boundary,
+            )
+        elif args.method == "two-proportion":
+            required = (
+                args.control_successes,
+                args.control_totals,
+                args.treatment_successes,
+                args.treatment_totals,
+            )
+            if not all(required):
+                print(
+                    "sequential: --control-successes, --control-totals, "
+                    "--treatment-successes, and --treatment-totals are required",
+                    file=sys.stderr,
+                )
+                return 2
+            report = sequential_two_proportion_test(
+                _parse_ints(args.control_successes, "--control-successes"),
+                _parse_ints(args.control_totals, "--control-totals"),
+                _parse_ints(args.treatment_successes, "--treatment-successes"),
+                _parse_ints(args.treatment_totals, "--treatment-totals"),
+                alpha=args.alpha,
+                m=args.m,
+                stop_on_significant=args.stop_on_significant,
+                boundary=args.boundary,
+            )
+        elif args.method == "mean":
+            if not args.means or not args.sems:
+                print("sequential: --means and --sems are required", file=sys.stderr)
+                return 2
+            report = sequential_mean_test(
+                _parse_floats(args.means, "--means"),
+                _parse_floats(args.sems, "--sems"),
+                null_mean=args.null_mean,
+                alpha=args.alpha,
+                m=args.m,
+                stop_on_significant=args.stop_on_significant,
+                ns=_parse_ints(args.ns, "--ns") if args.ns else None,
+                boundary=args.boundary,
+            )
+        else:
+            required = (
+                args.control_means,
+                args.control_sds,
+                args.control_ns,
+                args.treatment_means,
+                args.treatment_sds,
+                args.treatment_ns,
+            )
+            if not all(required):
+                print(
+                    "sequential: --control-means, --control-sds, --control-ns, "
+                    "--treatment-means, --treatment-sds, and --treatment-ns are required",
+                    file=sys.stderr,
+                )
+                return 2
+            report = sequential_two_sample_mean_test(
+                _parse_floats(args.control_means, "--control-means"),
+                _parse_floats(args.control_sds, "--control-sds"),
+                _parse_ints(args.control_ns, "--control-ns"),
+                _parse_floats(args.treatment_means, "--treatment-means"),
+                _parse_floats(args.treatment_sds, "--treatment-sds"),
+                _parse_ints(args.treatment_ns, "--treatment-ns"),
+                alpha=args.alpha,
+                m=args.m,
+                stop_on_significant=args.stop_on_significant,
+                boundary=args.boundary,
+            )
+    except (OSError, ValueError) as exc:
+        print(f"sequential: {exc}", file=sys.stderr)
+        return 2
+
+    _print_sequential_report(report)
+    return 0
 
 
 def cmd_sample_size(args: argparse.Namespace) -> int:
@@ -251,6 +468,7 @@ _COMMANDS = {
     "mde": cmd_mde,
     "simulate": cmd_simulate,
     "cuped": cmd_cuped,
+    "sequential": cmd_sequential,
     "report": cmd_report,
 }
 
