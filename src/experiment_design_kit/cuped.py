@@ -184,6 +184,8 @@ def cuped_adjust(
     t = np.asarray(treatment).reshape(-1)
     if t.shape != y.shape:
         raise ValueError("outcomes, treatment, and covariates must have the same length")
+    if not np.all(np.isfinite(np.asarray(t, dtype=float))):
+        raise ValueError("treatment must contain only finite values")
     if y.size == 0:
         raise ValueError("cannot adjust an empty dataset")
 
@@ -250,6 +252,8 @@ def _as_paired_vectors(
     bb = np.asarray(b, dtype=float).reshape(-1)
     if aa.shape != bb.shape:
         raise ValueError(f"{a_name} and {b_name} must have the same length")
+    if not np.all(np.isfinite(aa)) or not np.all(np.isfinite(bb)):
+        raise ValueError(f"{a_name} and {b_name} must contain only finite values")
     return aa, bb
 
 

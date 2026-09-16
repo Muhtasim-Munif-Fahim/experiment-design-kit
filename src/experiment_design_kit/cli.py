@@ -191,10 +191,22 @@ def _load_cuped_csv(path: Path) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         outcomes: list[float] = []
         treatment: list[int] = []
         covariates: list[float] = []
-        for row in reader:
-            outcomes.append(float(row[fields["outcome"]]))
-            treatment.append(int(float(row[fields["treatment"]])))
-            covariates.append(float(row[fields["covariate"]]))
+        for row_num, row in enumerate(reader, start=2):
+            parsed = []
+            for col in required:
+                raw = row[fields[col]]
+                if raw is None or str(raw).strip() == "":
+                    raise ValueError(f"CSV row {row_num} is missing {col}")
+                parsed.append(raw.strip())
+            outcome_s, treatment_s, covariate_s = parsed
+            treatment_value = float(treatment_s)
+            if treatment_value not in (0.0, 1.0):
+                raise ValueError(
+                    f"CSV row {row_num}: treatment must be 0 or 1, got {treatment_s!r}"
+                )
+            outcomes.append(float(outcome_s))
+            treatment.append(int(treatment_value))
+            covariates.append(float(covariate_s))
     return (
         np.asarray(outcomes, dtype=float),
         np.asarray(treatment, dtype=int),
@@ -217,7 +229,7 @@ def cmd_cuped(args: argparse.Namespace) -> int:
             )
             source = f"synthetic n/group={args.n} correlation={args.correlation} seed={args.seed}"
         result = cuped_adjust(outcomes, treatment, covariates, fit_on=args.fit_on)
-    except (OSError, ValueError) as exc:
+    except (OSError, TypeError, ValueError) as exc:
         print(f"cuped: {exc}", file=sys.stderr)
         return 2
 

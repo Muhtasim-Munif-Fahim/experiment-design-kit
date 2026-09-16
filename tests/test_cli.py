@@ -128,3 +128,42 @@ def test_cuped_missing_csv_columns(tmp_path: Path) -> None:
         rc = main(["cuped", "--csv", str(bad)])
     assert rc == 2
     assert "outcome" in err.getvalue()
+
+
+def test_cuped_short_csv_row(tmp_path: Path) -> None:
+    short = tmp_path / "short.csv"
+    short.write_text("outcome,treatment,covariate\n1.0,0\n2.0,1,0.5\n", encoding="utf-8")
+    buf = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(buf), redirect_stderr(err):
+        rc = main(["cuped", "--csv", str(short)])
+    assert rc == 2
+    assert "missing" in err.getvalue()
+
+
+def test_cuped_fractional_treatment_csv(tmp_path: Path) -> None:
+    bad = tmp_path / "frac.csv"
+    bad.write_text(
+        "outcome,treatment,covariate\n1.0,0.9,0.1\n2.0,1,0.2\n3.0,0,0.3\n4.0,1,0.4\n",
+        encoding="utf-8",
+    )
+    buf = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(buf), redirect_stderr(err):
+        rc = main(["cuped", "--csv", str(bad)])
+    assert rc == 2
+    assert "treatment must be 0 or 1" in err.getvalue()
+
+
+def test_cuped_nonfinite_csv(tmp_path: Path) -> None:
+    bad = tmp_path / "nan.csv"
+    bad.write_text(
+        "outcome,treatment,covariate\n1.0,0,0.1\nnan,1,0.2\n3.0,0,0.3\n4.0,1,0.4\n",
+        encoding="utf-8",
+    )
+    buf = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(buf), redirect_stderr(err):
+        rc = main(["cuped", "--csv", str(bad)])
+    assert rc == 2
+    assert "finite" in err.getvalue()

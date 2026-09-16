@@ -41,6 +41,19 @@ def test_estimate_theta_rejects_short_or_mismatched_input() -> None:
         estimate_theta(np.array([1.0]), np.array([1.0]))
 
 
+def test_nonfinite_values_raise() -> None:
+    treatment = np.array([0, 0, 1, 1])
+    finite = np.array([1.0, 2.0, 3.0, 4.0])
+    with pytest.raises(ValueError, match="finite"):
+        estimate_theta(np.array([1.0, np.nan, 3.0, 4.0]), finite)
+    with pytest.raises(ValueError, match="finite"):
+        adjust_metric(finite, np.array([1.0, np.inf, 3.0, 4.0]))
+    with pytest.raises(ValueError, match="finite"):
+        cuped_adjust(np.array([1.0, 2.0, np.nan, 4.0]), treatment, finite)
+    with pytest.raises(ValueError, match="finite"):
+        cuped_adjust(finite, np.array([0.0, 0.0, np.nan, 1.0]), finite)
+
+
 def test_adjust_metric_is_mean_preserving() -> None:
     outcomes, _treatment, covariate = _make_data()
     adjusted = adjust_metric(outcomes, covariate)
