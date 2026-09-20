@@ -9,6 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .bayesian import bayesian_power_proportion, required_bayesian_sample_size
 from .cuped import cuped_adjust, simulate_cuped_data
 from .mde import minimum_detectable_effect, minimum_detectable_effect_proportion, minimum_detectable_effect_raw
 from .power import power_one_sample, power_proportion, power_two_sample
@@ -51,6 +52,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Always-valid / alpha-spending sequential tests, or a peeking FPR simulation",
     )
     _add_sequential_args(seq)
+
+    bayes = sub.add_parser(
+        "bayesian",
+        help="Bayesian power or sample-size planning for conversion A/B tests",
+    )
+    _add_bayesian_args(bayes)
 
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
@@ -176,6 +183,166 @@ def _add_sequential_args(p: argparse.ArgumentParser) -> None:
         default="proportion",
         help="Peeking simulation metric (default: proportion)",
     )
+
+
+def _add_bayesian_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--method",
+        choices=["power", "sample-size"],
+        required=True,
+        help="Estimate decision power at a fixed n, or search for n",
+    )
+    p.add_argument("--p1", type=float, required=True, help="Assumed control conversion rate")
+    p.add_argument("--p2", type=float, default=None, help="Assumed treatment conversion rate")
+    p.add_argument(
+        "--lift",
+        type=float,
+        default=None,
+        help="Relative lift alternative to --p2 (p2 = p1 * (1 + lift))",
+    )
+    p.add_argument("--n", type=int, default=None, help="Sample size per control group (power method)")
+    p.add_argument(
+        "--power",
+        type=float,
+        default=0.8,
+        help="Target Bayesian decision power for sample-size search (default: 0.8)",
+    )
+    p.add_argument(
+        "--threshold",
+        type=float,
+        default=0.95,
+        help="Posterior probability needed to decide (default: 0.95)",
+    )
+    p.add_argument(
+        "--decision",
+        choices=["threshold", "rope"],
+        default="threshold",
+        help="Decision rule: P(B>A) threshold or ROPE (default: threshold)",
+    )
+    p.add_argument("--rope-lower", type=float, default=None, help="ROPE lower bound (required for rope)")
+    p.add_argument("--rope-upper", type=float, default=None, help="ROPE upper bound (required for rope)")
+    p.add_argument(
+        "--rope-scale",
+        choices=["absolute", "relative"],
+        default="absolute",
+        help="ROPE is on θ_t-θ_c (absolute) or relative lift (default: absolute)",
+    )
+    p.add_argument("--prior-alpha", type=float, default=1.0, help="Beta prior alpha (default: 1)")
+    p.add_argument("--prior-beta", type=float, default=1.0, help="Beta prior beta (default: 1)")
+    p.add_argument("--ratio", type=float, default=1.0, help="n_treatment / n_control (default: 1)")
+    p.add_argument("--trials", type=int, default=1000, help="Monte Carlo experiments (default: 1000)")
+    p.add_argument(
+        "--posterior-samples",
+        type=int,
+        default=2000,
+        help="Posterior draws per experiment (default: 2000)",
+    )
+    p.add_argument("--seed", type=int, default=0, help="RNG seed (default: 0)")
+
+
+def _treatment_rate_from_args(args: argparse.Namespace) -> float:
+    if args.p2 is not None and args.lift is not None:
+        raise ValueError("provide --p2 or --lift, not both")
+    if args.p2 is not None:
+        return args.p2
+    if args.lift is not None:
+        p2 = args.p1 * (1.0 + args.lift)
+        if not 0.0 <= p2 <= 1.0:
+            raise ValueError("p1 * (1 + lift) must be in [0, 1]")
+        return p2
+    raise ValueError("--p2 or --lift is required")
+
+
+def _rope_from_args(args: argparse.Namespace) -> tuple[float, float] | None:
+    if args.decision != "rope":
+        if args.rope_lower is not None or args.rope_upper is not None:
+            raise ValueError("--rope-lower/--rope-upper are only used with --decision rope")
+        return None
+    if args.rope_lower is None or args.rope_upper is None:
+        raise ValueError("--rope-lower and --rope-upper are required for --decision rope")
+    return (args.rope_lower, args.rope_upper)
+
+
+def _print_bayesian_power(result, heading: str) -> None:
+    print(heading)
+    print(f"control/treatment rates: {result.p_control:.4f} / {result.p_treatment:.4f}")
+    print(
+        f"n control/treatment: {result.n_control:,}/{result.n_treatment:,}  "
+        f"threshold: {result.threshold:.3f}  decision: {result.decision}"
+    )
+    if result.decision == "rope":
+        print(
+            f"ROPE: [{result.rope_lower}, {result.rope_upper}] "
+            f"on {result.rope_scale} lift"
+        )
+    print(
+        f"trials: {result.n_trials:,}  posterior samples: {result.n_posterior_samples:,}  "
+        f"seed: {result.seed}"
+    )
+    print(f"power (P(decision)): {result.power:.4f}")
+    print(f"P(declare treatment better): {result.prob_treatment_wins:.4f}")
+    print(f"P(declare control better): {result.prob_control_wins:.4f}")
+    if result.decision == "rope":
+        print(f"P(declare equivalent): {result.prob_equivalent:.4f}")
+    print(f"P(inconclusive): {result.prob_inconclusive:.4f}")
+    print(f"mean P(treatment > control): {result.mean_prob_treatment_better:.4f}")
+
+
+def cmd_bayesian(args: argparse.Namespace) -> int:
+    try:
+        p_treatment = _treatment_rate_from_args(args)
+        rope = _rope_from_args(args)
+        if args.method == "power":
+            if args.n is None:
+                print("bayesian: --n is required for method power", file=sys.stderr)
+                return 2
+            result = bayesian_power_proportion(
+                args.p1,
+                p_treatment,
+                args.n,
+                threshold=args.threshold,
+                decision=args.decision,
+                rope=rope,
+                rope_scale=args.rope_scale,
+                prior_alpha=args.prior_alpha,
+                prior_beta=args.prior_beta,
+                ratio=args.ratio,
+                n_trials=args.trials,
+                n_posterior_samples=args.posterior_samples,
+                random_state=args.seed,
+            )
+            _print_bayesian_power(result, "Bayesian power")
+            return 0
+
+        plan = required_bayesian_sample_size(
+            args.p1,
+            p_treatment,
+            target_power=args.power,
+            threshold=args.threshold,
+            decision=args.decision,
+            rope=rope,
+            rope_scale=args.rope_scale,
+            prior_alpha=args.prior_alpha,
+            prior_beta=args.prior_beta,
+            ratio=args.ratio,
+            n_trials=args.trials,
+            n_posterior_samples=args.posterior_samples,
+            random_state=args.seed,
+        )
+        print("Bayesian sample size")
+        print(f"control/treatment rates: {plan.p_control:.4f} / {plan.p_treatment:.4f}")
+        print(f"target power: {plan.target_power:.2f}  threshold: {plan.threshold:.3f}  decision: {plan.decision}")
+        if plan.decision == "rope":
+            print(f"ROPE: [{plan.rope_lower}, {plan.rope_upper}] on {plan.rope_scale} lift")
+        print(f"sample size per group: {plan.n_per_group:,}")
+        print(f"total sample size: {plan.n_total:,}")
+        print(f"achieved power: {plan.achieved_power:.4f}")
+        print(f"P(declare treatment better): {plan.power_result.prob_treatment_wins:.4f}")
+        print(f"trials: {plan.n_trials:,}  seed: {plan.seed}")
+        return 0
+    except ValueError as exc:
+        print(f"bayesian: {exc}", file=sys.stderr)
+        return 2
 
 
 def _parse_ints(text: str, flag: str) -> list[int]:
@@ -469,6 +636,7 @@ _COMMANDS = {
     "simulate": cmd_simulate,
     "cuped": cmd_cuped,
     "sequential": cmd_sequential,
+    "bayesian": cmd_bayesian,
     "report": cmd_report,
 }
 

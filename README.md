@@ -6,8 +6,10 @@ calculators (two-proportion z-test, two-sample and Welch's t-test),
 statistical power analysis with configurable alpha/power, a minimum
 detectable effect calculator, CUPED variance reduction for continuous
 metrics, sequential always-valid inference (mSPRT p-values and
-alpha-spending bounds) for optional stopping, and a seedable A/B test
-outcome simulator with significance checking (chi-square and t-test).
+alpha-spending bounds) for optional stopping, Bayesian power and
+sample-size planning for conversion tests (threshold or ROPE decisions
+via simulation), and a seedable A/B test outcome simulator with
+significance checking (chi-square and t-test).
 
 ## Install
 
@@ -44,6 +46,16 @@ experiment-design-kit sequential --method two-proportion \
 # False-positive rates under peeking: naive repeated testing vs sequential bounds.
 experiment-design-kit sequential --method peeking --looks 8 --n-per-look 200 --trials 400
 
+# Bayesian power: chance of deciding P(B>A)>0.95 under an assumed 10% → 12% lift.
+experiment-design-kit bayesian --method power --p1 0.10 --p2 0.12 --n 3841 --threshold 0.95
+
+# Bayesian sample size for the same decision rule and a 80% decision rate.
+experiment-design-kit bayesian --method sample-size --p1 0.10 --p2 0.12 --power 0.8 --threshold 0.95
+
+# ROPE planning: probability of concluding practical equivalence (or a winner).
+experiment-design-kit bayesian --method power --p1 0.10 --p2 0.10 --n 8000 \
+  --decision rope --rope-lower -0.005 --rope-upper 0.005 --threshold 0.95
+
 # Run the full demo workflow and write a Markdown report.
 experiment-design-kit report -o examples/output/demo_report.md
 ```
@@ -59,6 +71,8 @@ from experiment_design_kit import (
     run_proportion_ab_test,
     cuped_adjust,
     simulate_cuped_data,
+    bayesian_power_proportion,
+    required_bayesian_sample_size,
 )
 
 h = cohen_h(0.10, 0.12)
@@ -69,6 +83,9 @@ outcome = run_proportion_ab_test(0.10, 0.12, plan.n_per_group_required, seed=42)
 
 y, t, x = simulate_cuped_data(400, correlation=0.8, treatment_effect=0.5, seed=42)
 cuped = cuped_adjust(y, t, x)
+
+bayes = bayesian_power_proportion(0.10, 0.12, 3841, threshold=0.95, n_trials=1000, random_state=0)
+plan = required_bayesian_sample_size(0.20, 0.28, target_power=0.8, threshold=0.95, random_state=0)
 ```
 
 See `examples/run_demo.py` for a complete end-to-end demo and `tests/` for
@@ -163,4 +180,68 @@ One-sample helpers `sequential_proportion_test` (vs `null_p`) and
 parameter `m` (default `0.01`) is the relative variance of the mixing
 distribution: smaller `m` is more conservative. Spending functions are
 evaluated at the information fraction `t = n / n_planned`.
+
+## Bayesian power (conversion A/B tests)
+
+Frequentist `power` / `sample-size` / `mde` answer "will a p-value cross
+`alpha`?". Bayesian planning answers a different question: under an
+assumed lift, how often will the Beta-Binomial analysis reach a *decision*?
+
+Two rules are simulated (same Beta(1, 1) prior as `bayesian_ab_test`
+unless you override it):
+
+* **threshold** — decide when `P(θ_treatment > θ_control) ≥ threshold`
+  or the reverse (default `threshold=0.95`).
+* **ROPE** — decide when the posterior mass of the lift is at least
+  `threshold` *above* the interval (treatment better), *below* it
+  (control better), or *inside* it (practical equivalence). The interval
+  is on the absolute difference `θ_t - θ_c` or on relative lift
+  `(θ_t - θ_c) / θ_c`.
+
+`power` is the Monte Carlo share of experiments that are not
+inconclusive. The returned breakdown (`prob_treatment_wins`,
+`prob_control_wins`, `prob_equivalent`) tells you *which* decision.
+
+```python
+from experiment_design_kit import (
+    bayesian_ab_test,
+    bayesian_power_proportion,
+    required_bayesian_sample_size,
+)
+
+# Chance of P(B>A) > 0.95 (or P(A>B) > 0.95) at a planned n.
+pwr = bayesian_power_proportion(
+    0.10, 0.12, n_per_group=3841, threshold=0.95, n_trials=1000, random_state=0
+)
+print(pwr.power, pwr.prob_treatment_wins, pwr.prob_inconclusive)
+
+# Smallest n per group with decision rate ≥ 0.8.
+plan = required_bayesian_sample_size(
+    0.10, 0.12, target_power=0.8, threshold=0.95, random_state=0
+)
+print(plan.n_per_group, plan.achieved_power)
+
+# Equivalence planning: assumed lift of 0, ROPE of ±0.5 percentage points.
+eq = bayesian_power_proportion(
+    0.10,
+    0.10,
+    n_per_group=8000,
+    decision="rope",
+    rope=(-0.005, 0.005),
+    threshold=0.95,
+    n_trials=1000,
+    random_state=0,
+)
+print(eq.prob_equivalent, eq.power)
+
+# Same decision rule on observed counts.
+observed = bayesian_ab_test(80, 1000, 110, 1000, random_state=0)
+print(observed.prob_treatment_better, observed.expected_lift)
+```
+
+`--lift` on the CLI is a relative alternative to `--p2`
+(`p2 = p1 * (1 + lift)`). Threshold-rule sample-size search requires a
+non-zero assumed lift: under equal rates the chance of declaring a
+winner goes to 0 as `n` grows. ROPE search is valid at a zero lift
+because it can conclude equivalence.
 
