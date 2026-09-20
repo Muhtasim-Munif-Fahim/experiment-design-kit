@@ -192,6 +192,155 @@ def test_sequential_missing_args() -> None:
     assert "successes" in err.getvalue()
 
 
+def test_bayesian_power_threshold() -> None:
+    out = _run(
+        [
+            "bayesian",
+            "--method",
+            "power",
+            "--p1",
+            "0.20",
+            "--p2",
+            "0.45",
+            "--n",
+            "250",
+            "--threshold",
+            "0.90",
+            "--trials",
+            "200",
+            "--posterior-samples",
+            "600",
+            "--seed",
+            "0",
+        ]
+    )
+    assert "Bayesian power" in out
+    assert "power (P(decision)):" in out
+    assert "P(declare treatment better):" in out
+    power = float(re.search(r"power \(P\(decision\)\): ([\d.]+)", out).group(1))
+    treat = float(re.search(r"P\(declare treatment better\): ([\d.]+)", out).group(1))
+    assert power > 0.8
+    assert treat > 0.8
+
+
+def test_bayesian_power_from_relative_lift() -> None:
+    out = _run(
+        [
+            "bayesian",
+            "--method",
+            "power",
+            "--p1",
+            "0.20",
+            "--lift",
+            "1.0",
+            "--n",
+            "180",
+            "--trials",
+            "150",
+            "--posterior-samples",
+            "500",
+            "--seed",
+            "1",
+        ]
+    )
+    assert "0.2000 / 0.4000" in out
+
+
+def test_bayesian_power_rope() -> None:
+    out = _run(
+        [
+            "bayesian",
+            "--method",
+            "power",
+            "--p1",
+            "0.25",
+            "--p2",
+            "0.25",
+            "--n",
+            "2000",
+            "--decision",
+            "rope",
+            "--rope-lower",
+            "-0.05",
+            "--rope-upper",
+            "0.05",
+            "--threshold",
+            "0.90",
+            "--trials",
+            "150",
+            "--posterior-samples",
+            "500",
+            "--seed",
+            "2",
+        ]
+    )
+    assert "ROPE:" in out
+    assert "P(declare equivalent):" in out
+    equiv = float(re.search(r"P\(declare equivalent\): ([\d.]+)", out).group(1))
+    assert equiv > 0.5
+
+
+def test_bayesian_sample_size() -> None:
+    out = _run(
+        [
+            "bayesian",
+            "--method",
+            "sample-size",
+            "--p1",
+            "0.25",
+            "--p2",
+            "0.45",
+            "--power",
+            "0.70",
+            "--threshold",
+            "0.90",
+            "--trials",
+            "150",
+            "--posterior-samples",
+            "500",
+            "--seed",
+            "3",
+        ]
+    )
+    assert "Bayesian sample size" in out
+    assert "sample size per group:" in out
+    assert "achieved power:" in out
+    achieved = float(re.search(r"achieved power: ([\d.]+)", out).group(1))
+    assert achieved >= 0.70
+
+
+def test_bayesian_power_requires_n() -> None:
+    buf = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(buf), redirect_stderr(err):
+        rc = main(["bayesian", "--method", "power", "--p1", "0.1", "--p2", "0.2"])
+    assert rc == 2
+    assert "--n is required" in err.getvalue()
+
+
+def test_bayesian_rejects_p2_and_lift() -> None:
+    buf = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(buf), redirect_stderr(err):
+        rc = main(
+            [
+                "bayesian",
+                "--method",
+                "power",
+                "--p1",
+                "0.1",
+                "--p2",
+                "0.2",
+                "--lift",
+                "0.1",
+                "--n",
+                "100",
+            ]
+        )
+    assert rc == 2
+    assert "not both" in err.getvalue()
+
+
 def test_cuped_missing_csv_columns(tmp_path: Path) -> None:
     bad = tmp_path / "bad.csv"
     bad.write_text("a,b\n1,2\n", encoding="utf-8")

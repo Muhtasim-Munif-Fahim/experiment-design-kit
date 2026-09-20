@@ -1,10 +1,14 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
+    BayesianPowerResult,
     BayesianProportionResult,
+    BayesianSampleSizeResult,
     bayesian_ab_test,
+    bayesian_power_proportion,
     bayesian_proportion_test,
+    required_bayesian_sample_size,
 )
 from .cli import main
 from .cuped import CUPEDResult, adjust_metric, cuped_adjust, estimate_theta, simulate_cuped_data
@@ -74,9 +78,13 @@ __all__ = [
     "__version__",
     "main",
     "BayesianABTestResult",
+    "BayesianPowerResult",
     "BayesianProportionResult",
+    "BayesianSampleSizeResult",
     "bayesian_ab_test",
+    "bayesian_power_proportion",
     "bayesian_proportion_test",
+    "required_bayesian_sample_size",
     "CUPEDResult",
     "adjust_metric",
     "cuped_adjust",
