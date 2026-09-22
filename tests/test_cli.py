@@ -341,6 +341,85 @@ def test_bayesian_rejects_p2_and_lift() -> None:
     assert "not both" in err.getvalue()
 
 
+def test_randomize_synthetic_reports_balance() -> None:
+    out = _run(["randomize", "--n", "240", "--seed", "0", "--bins", "4"])
+    assert "source: synthetic" in out
+    assert "strata:" in out
+    assert "arm counts:" in out
+    assert "covariate balance:" in out
+    assert "region (categorical)" in out
+    assert "score (continuous)" in out
+    assert "quantile bins:" in out
+    assert "quantile-bin balance:" in out
+    assert "max |SMD|:" in out
+    region_line = next(line for line in out.splitlines() if "region (categorical)" in line)
+    region_smd = float(re.search(r"max\|SMD\|=([0-9.]+)", region_line).group(1))
+    assert region_smd < 0.25
+
+
+def test_randomize_from_csv(tmp_path: Path) -> None:
+    csv_path = tmp_path / "units.csv"
+    lines = ["id,region,pre_metric"]
+    for index in range(40):
+        region = "us" if index < 24 else "eu"
+        lines.append(f"u{index},{region},{index / 10:.2f}")
+    csv_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    out = _run(
+        [
+            "randomize",
+            "--csv",
+            str(csv_path),
+            "--bins",
+            "pre_metric=4",
+            "--categorical",
+            "region",
+            "--seed",
+            "3",
+        ]
+    )
+    assert f"source: csv:{csv_path}" in out
+    assert "region (categorical)" in out
+    assert "pre_metric (continuous)" in out
+    assert "quantile-bin balance:" in out
+
+
+def test_randomize_ratio_and_three_arms() -> None:
+    out = _run(
+        [
+            "randomize",
+            "--n",
+            "90",
+            "--arms",
+            "3",
+            "--ratio",
+            "1,1,2",
+            "--seed",
+            "1",
+            "--levels",
+            "2",
+        ]
+    )
+    assert "arm_0=" in out
+    assert "arm_1=" in out
+    assert "arm_2=" in out
+    counts = [
+        int(value)
+        for value in re.findall(r"arm_\d=(\d+)", out.split("covariate balance:")[0])
+    ]
+    assert counts[2] > counts[0]
+
+
+def test_randomize_requires_bins_for_continuous_csv(tmp_path: Path) -> None:
+    csv_path = tmp_path / "units.csv"
+    csv_path.write_text("score\n0.1\n0.4\n0.9\n1.2\n", encoding="utf-8")
+    buf = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(buf), redirect_stderr(err):
+        rc = main(["randomize", "--csv", str(csv_path), "--seed", "0"])
+    assert rc == 2
+    assert "continuous" in err.getvalue()
+
+
 def test_cuped_missing_csv_columns(tmp_path: Path) -> None:
     bad = tmp_path / "bad.csv"
     bad.write_text("a,b\n1,2\n", encoding="utf-8")

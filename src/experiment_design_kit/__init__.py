@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, stratified randomization, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -25,6 +25,16 @@ from .power import (
     power_proportion,
     power_two_sample,
     required_sample_size,
+)
+from .randomization import (
+    BalanceReport,
+    BalanceRow,
+    StratifiedAssignment,
+    balance_report,
+    format_balance_report,
+    quantile_bins,
+    standardized_mean_difference,
+    stratified_randomization,
 )
 from .reporting import (
     ContinuousScenario,
@@ -90,6 +100,14 @@ __all__ = [
     "cuped_adjust",
     "estimate_theta",
     "simulate_cuped_data",
+    "BalanceReport",
+    "BalanceRow",
+    "StratifiedAssignment",
+    "balance_report",
+    "format_balance_report",
+    "quantile_bins",
+    "standardized_mean_difference",
+    "stratified_randomization",
     "ProportionTestResult",
     "SampleSizeResult",
     "TTestResult",
