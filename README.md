@@ -8,8 +8,10 @@ detectable effect calculator, CUPED variance reduction for continuous
 metrics, sequential always-valid inference (mSPRT p-values and
 alpha-spending bounds) for optional stopping, Bayesian power and
 sample-size planning for conversion tests (threshold or ROPE decisions
-via simulation), and a seedable A/B test outcome simulator with
-significance checking (chi-square and t-test).
+via simulation), stratified randomization on categorical covariates or
+quantile bins with covariate balance diagnostics (standardized mean
+differences and chi-square), and a seedable A/B test outcome simulator
+with significance checking (chi-square and t-test).
 
 ## Install
 
@@ -55,6 +57,12 @@ experiment-design-kit bayesian --method sample-size --p1 0.10 --p2 0.12 --power 
 # ROPE planning: probability of concluding practical equivalence (or a winner).
 experiment-design-kit bayesian --method power --p1 0.10 --p2 0.10 --n 8000 \
   --decision rope --rope-lower -0.005 --rope-upper 0.005 --threshold 0.95
+
+# Stratified assignment on a synthetic region factor and 4 quantile bins of a score.
+experiment-design-kit randomize --n 240 --seed 0 --bins 4
+
+# Same workflow on a CSV (one row per unit). Continuous columns need --bins.
+experiment-design-kit randomize --csv path/to/units.csv --bins pre_metric=4 --categorical region
 
 # Run the full demo workflow and write a Markdown report.
 experiment-design-kit report -o examples/output/demo_report.md
@@ -244,4 +252,71 @@ print(observed.prob_treatment_better, observed.expected_lift)
 non-zero assumed lift: under equal rates the chance of declaring a
 winner goes to 0 as `n` grows. ROPE search is valid at a zero lift
 because it can conclude equivalence.
+
+## Stratified randomization and covariate balance
+
+Stratified randomization keeps arms aligned on baseline covariates.
+Strata are the Cartesian product of categorical factors. A continuous
+covariate is cut into quantile bins first and those bins become a
+factor. Inside each stratum, units are shuffled into arms so the counts
+follow the allocation ratio (equal by default) to the nearest unit.
+Tied remainders are broken at random, and the whole draw is fixed by
+`seed`.
+
+Each observed combination of factors is balanced: arm counts in that
+cell match the ratio to the nearest unit. With one factor, every level
+is balanced that tightly. With several crossed factors, a one-way
+margin can drift by up to one unit per combination inside the margin.
+Quantile bins are balanced the same way. The raw continuous covariate
+is not forced into exact balance; its standardized mean difference is
+usually small after binning.
+
+`balance_report` compares a realized assignment with the reference arm
+(arm `0` by default):
+
+* **Continuous** covariates use Austin's standardized mean difference,
+
+  `(mean_arm - mean_reference) / sqrt((var_arm + var_reference) / 2)`.
+
+* **Categorical** covariates (and any name passed in `categorical`,
+  including integer codes) get a Pearson chi-square test of the
+  level-by-arm table plus the SMD of each level indicator. The row's
+  `max_abs_smd` is the largest absolute level SMD.
+
+```python
+import numpy as np
+
+from experiment_design_kit import balance_report, stratified_randomization
+
+rng = np.random.default_rng(0)
+region = rng.choice(["us", "eu", "apac"], size=240, p=[0.5, 0.3, 0.2])
+pre_metric = rng.normal(size=240)
+
+assigned = stratified_randomization(
+    {"region": region, "pre_metric": pre_metric},
+    n_bins={"pre_metric": 4},
+    seed=0,
+)
+print(assigned.arm_counts, assigned.n_strata)
+
+report = balance_report(
+    {"region": region, "pre_metric": pre_metric},
+    assigned.assignment,
+    categorical=["region"],
+)
+print(report)
+```
+
+`assigned.factors["pre_metric"]` is the bin index used for
+stratification, and `assigned.bin_edges["pre_metric"]` is the cut
+points. `assigned.stratum_arm_counts` is the arm counts inside each
+stratum. Pass `ratio=(1, 2)` for a 1:2 allocation, or `n_arms=3` for
+more than two arms.
+
+The `randomize` CLI prints the same diagnostics. Without `--csv` it
+builds a skewed categorical `region` and a normal `score`, then bins
+`score` (default 4 bins). A CSV uses every column except `id`,
+`unit_id`, and `user_id`. Integer-looking columns are categories unless
+named in `--bins` (for example `--bins age=4`); pass `--categorical` to
+force a chi-square test for numeric codes.
 

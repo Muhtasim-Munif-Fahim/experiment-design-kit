@@ -13,6 +13,7 @@ from .bayesian import bayesian_power_proportion, required_bayesian_sample_size
 from .cuped import cuped_adjust, simulate_cuped_data
 from .mde import minimum_detectable_effect, minimum_detectable_effect_proportion, minimum_detectable_effect_raw
 from .power import power_one_sample, power_proportion, power_two_sample
+from .randomization import balance_report, stratified_randomization
 from .reporting import compose_demo_report
 from .sequential import (
     sequential_mean_test,
@@ -58,6 +59,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Bayesian power or sample-size planning for conversion A/B tests",
     )
     _add_bayesian_args(bayes)
+
+    rand = sub.add_parser(
+        "randomize",
+        help="Stratified randomization and covariate balance (SMD / chi-square)",
+    )
+    _add_randomize_args(rand)
 
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
@@ -238,6 +245,38 @@ def _add_bayesian_args(p: argparse.ArgumentParser) -> None:
         help="Posterior draws per experiment (default: 2000)",
     )
     p.add_argument("--seed", type=int, default=0, help="RNG seed (default: 0)")
+
+
+def _add_randomize_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--csv",
+        default=None,
+        help="CSV of covariates, one row per unit (id/unit_id/user_id columns are ignored)",
+    )
+    p.add_argument("--n", type=int, default=240, help="Units in the synthetic example (default: 240)")
+    p.add_argument("--arms", type=int, default=2, help="Number of arms (default: 2)")
+    p.add_argument(
+        "--ratio",
+        default=None,
+        help="Comma-separated allocation weights, one per arm (default: equal)",
+    )
+    p.add_argument(
+        "--bins",
+        default=None,
+        help="Quantile bins: an integer for every continuous covariate, or name=bins pairs",
+    )
+    p.add_argument(
+        "--categorical",
+        default=None,
+        help="Comma-separated names to treat as categories in the balance report",
+    )
+    p.add_argument(
+        "--levels",
+        type=int,
+        default=3,
+        help="Levels of the synthetic categorical covariate (default: 3)",
+    )
+    p.add_argument("--seed", type=int, default=0, help="Random seed (default: 0)")
 
 
 def _treatment_rate_from_args(args: argparse.Namespace) -> float:
@@ -620,6 +659,147 @@ def cmd_cuped(args: argparse.Namespace) -> int:
     return 0
 
 
+_ID_COLUMNS = {"id", "unit_id", "user_id"}
+
+
+def _parse_bins(text: str) -> int | dict[str, int]:
+    stripped = text.strip()
+    if not stripped:
+        raise ValueError("--bins must be an integer or name=bins pairs")
+    if "=" not in stripped:
+        try:
+            return int(stripped)
+        except ValueError as exc:
+            raise ValueError("--bins must be an integer or name=bins pairs") from exc
+    spec: dict[str, int] = {}
+    for part in stripped.split(","):
+        if "=" not in part:
+            raise ValueError("--bins must be an integer or name=bins pairs")
+        name, raw = part.split("=", 1)
+        name = name.strip()
+        if not name:
+            raise ValueError("--bins entries need a covariate name")
+        try:
+            spec[name] = int(raw.strip())
+        except ValueError as exc:
+            raise ValueError(f"--bins value for {name} must be an integer") from exc
+    return spec
+
+
+def _parse_name_list(text: str) -> list[str]:
+    names = [part.strip() for part in text.split(",") if part.strip()]
+    if not names:
+        raise ValueError("expected at least one covariate name")
+    return names
+
+
+def _synthetic_covariates(n: int, levels: int, seed: int) -> dict[str, np.ndarray]:
+    if n < 2:
+        raise ValueError("--n must be at least 2")
+    if levels < 2:
+        raise ValueError("--levels must be at least 2")
+    rng = np.random.default_rng(seed)
+    names = [f"r{i}" for i in range(levels)]
+    weights = np.linspace(1.0, 3.0, levels)
+    weights = weights / weights.sum()
+    region = rng.choice(names, size=n, p=weights)
+    score = rng.normal(size=n)
+    return {"region": region, "score": score}
+
+
+def _parse_covariate_column(name: str, raw: list[str]) -> np.ndarray:
+    if any(value == "" for value in raw):
+        raise ValueError(f"column {name} contains empty values")
+    try:
+        numbers = [float(value) for value in raw]
+    except ValueError:
+        return np.asarray(raw)
+    array = np.asarray(numbers, dtype=float)
+    if np.all(array == np.floor(array)):
+        return array.astype(int)
+    return array
+
+
+def _load_covariate_csv(path: Path) -> dict[str, np.ndarray]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        if not reader.fieldnames:
+            raise ValueError("CSV is missing a header row")
+        columns = [
+            name for name in reader.fieldnames
+            if name and name.strip() and name.strip().lower() not in _ID_COLUMNS
+        ]
+        if not columns:
+            raise ValueError("CSV has no covariate columns")
+        buckets: dict[str, list[str]] = {name: [] for name in columns}
+        for row in reader:
+            for name in columns:
+                value = row.get(name)
+                buckets[name].append("" if value is None else value.strip())
+    if not buckets[columns[0]]:
+        raise ValueError("CSV has no data rows")
+    return {name: _parse_covariate_column(name, values) for name, values in buckets.items()}
+
+
+def cmd_randomize(args: argparse.Namespace) -> int:
+    try:
+        if args.csv:
+            covariates = _load_covariate_csv(Path(args.csv))
+            source = f"csv:{args.csv}"
+            n_bins = _parse_bins(args.bins) if args.bins else None
+        else:
+            covariates = _synthetic_covariates(args.n, args.levels, args.seed)
+            source = (
+                f"synthetic n={args.n} levels={args.levels} seed={args.seed}"
+            )
+            n_bins = _parse_bins(args.bins) if args.bins else 4
+        ratio = _parse_floats(args.ratio, "--ratio") if args.ratio else None
+        categorical = _parse_name_list(args.categorical) if args.categorical else None
+        result = stratified_randomization(
+            covariates,
+            n_arms=args.arms,
+            ratio=ratio,
+            n_bins=n_bins,
+            seed=args.seed,
+        )
+        report = balance_report(
+            covariates,
+            result.assignment,
+            arm_labels=result.arm_labels,
+            categorical=categorical,
+        )
+        binned = {name: result.factors[name] for name in result.bin_edges}
+        bin_report = None
+        if binned:
+            bin_report = balance_report(
+                binned,
+                result.assignment,
+                arm_labels=result.arm_labels,
+                categorical=tuple(binned),
+            )
+    except (OSError, ValueError) as exc:
+        print(f"randomize: {exc}", file=sys.stderr)
+        return 2
+
+    counts = ", ".join(
+        f"{label}={count}" for label, count in zip(result.arm_labels, result.arm_counts)
+    )
+    print(f"source: {source}")
+    print(f"n: {result.assignment.size}  strata: {result.n_strata}  seed: {result.seed}")
+    print(f"arm counts: {counts}")
+    if result.bin_edges:
+        described = ", ".join(
+            f"{name}:{len(edges) - 1}" for name, edges in result.bin_edges.items()
+        )
+        print(f"quantile bins: {described}")
+    print("covariate balance:")
+    print(report)
+    if bin_report is not None:
+        print("quantile-bin balance:")
+        print(bin_report)
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     report = compose_demo_report(seed=args.seed)
     target = Path(args.output)
@@ -637,6 +817,7 @@ _COMMANDS = {
     "cuped": cmd_cuped,
     "sequential": cmd_sequential,
     "bayesian": cmd_bayesian,
+    "randomize": cmd_randomize,
     "report": cmd_report,
 }
 
