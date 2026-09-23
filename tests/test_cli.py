@@ -420,6 +420,44 @@ def test_randomize_requires_bins_for_continuous_csv(tmp_path: Path) -> None:
     assert "continuous" in err.getvalue()
 
 
+def test_block_equal_allocation_balances_every_block() -> None:
+    out = _run(["block", "--n", "20", "--block-size", "4", "--seed", "0"])
+    assert "block size: 4" in out
+    assert "blocks: 5" in out
+    assert "seed: 0" in out
+    assert "per complete block: control=2, treatment=2" in out
+    assert "arm counts: control=10, treatment=10" in out
+    assert "final block:" not in out
+
+
+def test_block_ratio_and_partial_final_block() -> None:
+    out = _run(["block", "--n", "10", "--block-size", "4", "--seed", "0"])
+    assert "blocks: 3" in out
+    assert "arm counts: control=5, treatment=5" in out
+    assert "final block: control=1, treatment=1" in out
+    ratio = _run(
+        ["block", "--n", "18", "--block-size", "6", "--ratio", "1,2", "--seed", "1"]
+    )
+    assert "per complete block: control=2, treatment=4" in ratio
+    assert "arm counts: control=6, treatment=12" in ratio
+
+
+def test_block_three_arms() -> None:
+    out = _run(["block", "--n", "9", "--block-size", "3", "--arms", "3", "--seed", "0"])
+    assert "arm_0=3" in out
+    assert "arm_1=3" in out
+    assert "arm_2=3" in out
+
+
+def test_block_rejects_odd_size_for_equal_arms() -> None:
+    buf = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(buf), redirect_stderr(err):
+        rc = main(["block", "--n", "10", "--block-size", "3", "--seed", "0"])
+    assert rc == 2
+    assert "2k" in err.getvalue()
+
+
 def test_cuped_missing_csv_columns(tmp_path: Path) -> None:
     bad = tmp_path / "bad.csv"
     bad.write_text("a,b\n1,2\n", encoding="utf-8")

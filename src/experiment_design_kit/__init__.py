@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, stratified randomization, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, stratified and blocked randomization, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -29,8 +29,10 @@ from .power import (
 from .randomization import (
     BalanceReport,
     BalanceRow,
+    BlockedAssignment,
     StratifiedAssignment,
     balance_report,
+    blocked_randomization,
     format_balance_report,
     quantile_bins,
     standardized_mean_difference,
@@ -102,8 +104,10 @@ __all__ = [
     "simulate_cuped_data",
     "BalanceReport",
     "BalanceRow",
+    "BlockedAssignment",
     "StratifiedAssignment",
     "balance_report",
+    "blocked_randomization",
     "format_balance_report",
     "quantile_bins",
     "standardized_mean_difference",
