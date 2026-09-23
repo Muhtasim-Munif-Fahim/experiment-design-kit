@@ -1,4 +1,4 @@
-"""Stratified randomization and covariate balance diagnostics.
+"""Stratified and blocked randomization, plus covariate balance diagnostics.
 
 Stratified randomization assigns units to arms *inside* covariate strata so
 the arms have nearly the same mix of those covariates. Strata are the
@@ -24,6 +24,16 @@ Balance diagnostics compare the realized arms:
 
 These checks describe the assignment. They are not a substitute for the
 outcome analysis.
+
+Blocked randomization (permuted blocks; Matts and Lachin 1988) assigns
+units in enrollment order inside blocks of a fixed size. Equal treatment
+and control use a block size of 2k, so every complete block contains k
+control and k treatment labels in random order and the arm counts match
+at every block boundary. ``ratio`` changes the mix: the block size must
+be a multiple of the allocation period (3k for a 1:2 ratio, and so on).
+``seed`` fixes the within-block permutations. When ``n`` is not a multiple
+of the block size, the final shorter block uses the same ratio and is as
+even as integer counts allow.
 """
 from __future__ import annotations
 
@@ -66,6 +76,48 @@ class StratifiedAssignment:
             return ()
         totals = [0] * len(self.stratum_arm_counts[0])
         for row in self.stratum_arm_counts:
+            for index, count in enumerate(row):
+                totals[index] += count
+        return tuple(totals)
+
+
+@dataclass(frozen=True)
+class BlockedAssignment:
+    """Permuted-block assignment of units to arms.
+
+    ``assignment[i]`` is the arm index of unit ``i`` in enrollment order.
+    ``block_ids[i]`` is that unit's block. Every block except a possible
+    short final block has length ``block_size``. ``block_arm_counts[b][k]``
+    is the number of units in block ``b`` assigned to arm ``k``.
+    ``block_target`` is the arm counts inside every complete block.
+    """
+
+    assignment: np.ndarray
+    block_ids: np.ndarray
+    block_size: int
+    arm_labels: tuple[str, ...]
+    block_arm_counts: tuple[tuple[int, ...], ...]
+    block_target: tuple[int, ...]
+    seed: int | None
+
+    @property
+    def n(self) -> int:
+        return int(self.assignment.size)
+
+    @property
+    def n_blocks(self) -> int:
+        return len(self.block_arm_counts)
+
+    @property
+    def n_complete_blocks(self) -> int:
+        return self.n // self.block_size
+
+    @property
+    def arm_counts(self) -> tuple[int, ...]:
+        if not self.block_arm_counts:
+            return ()
+        totals = [0] * len(self.block_arm_counts[0])
+        for row in self.block_arm_counts:
             for index, count in enumerate(row):
                 totals[index] += count
         return tuple(totals)
@@ -205,6 +257,95 @@ def stratified_randomization(
         stratum_arm_counts=tuple(tuple(int(c) for c in row) for row in counts_matrix),
         factors=copied_factors,
         bin_edges=bin_edges,
+        seed=seed,
+    )
+
+
+def blocked_randomization(
+    n: int,
+    *,
+    block_size: int,
+    n_arms: int = 2,
+    arm_labels: Sequence[str] | None = None,
+    ratio: Sequence[float] | None = None,
+    seed: int | None = None,
+) -> BlockedAssignment:
+    """Assign units to arms with permuted blocks of a fixed size.
+
+    Units are filled in enrollment order (index ``0`` first). Each complete
+    block is a random permutation of a fixed multiset of arm labels, so the
+    arm counts inside that block match ``ratio`` exactly. For equal
+    treatment and control the block size must be even, ``2k``: the block
+    holds ``k`` control and ``k`` treatment assignments. A 1:2 ratio uses
+    a multiple of 3, and so on.
+
+    When ``n`` is not a multiple of ``block_size``, the last block is
+    shorter. Its counts are the largest-remainder allocation of that
+    shorter length, then shuffled. Complete blocks stay on the ratio, and
+    the study-wide counts match the largest-remainder allocation of ``n``.
+
+    Parameters
+    ----------
+    n:
+        Number of units to assign. At least 1.
+    block_size:
+        Fixed number of units in every complete block. At least 2. Must
+        give every arm a positive whole number of slots (``2k`` for equal
+        treatment/control).
+    n_arms:
+        Number of arms. At least 2.
+    arm_labels:
+        Label for each arm, in arm-index order. Defaults to ``control`` and
+        ``treatment`` when there are two arms, otherwise ``arm_0``, ...
+    ratio:
+        Positive allocation weights, one per arm. ``None`` uses equal
+        allocation. Weights are scaled, so ``(1, 2)`` and ``(2, 4)`` are
+        the same scheme; the smallest legal block size is the allocation
+        period (3 for ``(1, 2)``).
+    seed:
+        Seed for the within-block permutations and any remainder tie-break.
+        ``None`` uses fresh entropy.
+
+    Returns
+    -------
+    BlockedAssignment
+        Arm index per unit, block index per unit, and the arm counts
+        inside each block.
+    """
+    if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+        raise ValueError("n must be an integer >= 1")
+    if isinstance(block_size, bool) or not isinstance(block_size, int) or block_size < 2:
+        raise ValueError("block_size must be an integer >= 2")
+    if isinstance(n_arms, bool) or not isinstance(n_arms, int) or n_arms < 2:
+        raise ValueError("n_arms must be an integer >= 2")
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int)):
+        raise ValueError("seed must be an integer or None")
+    labels = _arm_labels(n_arms, arm_labels)
+    weights = _allocation_weights(n_arms, ratio)
+    target = _exact_block_counts(block_size, weights)
+
+    rng = np.random.default_rng(seed)
+    assignment = np.empty(n, dtype=int)
+    block_rows: list[tuple[int, ...]] = []
+    n_complete, remainder = divmod(n, block_size)
+    for block in range(n_complete):
+        arm_ids = _permute_block(target, rng)
+        start = block * block_size
+        assignment[start : start + block_size] = arm_ids
+        block_rows.append(tuple(int(count) for count in target))
+    if remainder:
+        counts = _allocate_counts(remainder, weights, rng)
+        arm_ids = _permute_block(counts, rng)
+        assignment[n_complete * block_size :] = arm_ids
+        block_rows.append(tuple(int(count) for count in counts))
+
+    return BlockedAssignment(
+        assignment=assignment,
+        block_ids=np.arange(n, dtype=int) // block_size,
+        block_size=block_size,
+        arm_labels=labels,
+        block_arm_counts=tuple(block_rows),
+        block_target=tuple(int(count) for count in target),
         seed=seed,
     )
 
@@ -536,6 +677,57 @@ def _level_sort_key(value: object) -> tuple:
     return (1, 0, 0, str(value))
 
 
+def _exact_block_counts(block_size: int, weights: np.ndarray) -> np.ndarray:
+    """Arm counts for one complete block, or an error if the size is illegal.
+
+    ``block_size`` is legal when every arm's share is a positive integer.
+    Equal treatment/control therefore requires an even size ``2k``.
+    """
+    counts = _integral_block_counts(block_size, weights)
+    if counts is None:
+        period = _allocation_period(weights)
+        if period is None:
+            raise ValueError(
+                "block_size must give every arm a positive whole number of "
+                "units in each complete block; equal treatment/control uses "
+                "blocks of size 2k"
+            )
+        raise ValueError(
+            "block_size must be a positive multiple of the allocation "
+            f"period {period} so each complete block contains a whole number "
+            "of every arm; equal treatment/control uses blocks of size 2k"
+        )
+    return counts
+
+
+def _integral_block_counts(block_size: int, weights: np.ndarray) -> np.ndarray | None:
+    scaled = np.asarray(weights, dtype=float)
+    scaled = scaled / float(scaled.sum())
+    quotas = scaled * block_size
+    rounded = np.rint(quotas)
+    tolerance = 1e-6 * block_size
+    if np.any(np.abs(quotas - rounded) > tolerance):
+        return None
+    counts = rounded.astype(int)
+    if int(counts.sum()) != block_size or np.any(counts < 1):
+        return None
+    return counts
+
+
+def _allocation_period(weights: np.ndarray, limit: int = 10_000) -> int | None:
+    """Smallest block size that places a positive whole number on every arm."""
+    for period in range(1, limit + 1):
+        if _integral_block_counts(period, weights) is not None:
+            return period
+    return None
+
+
+def _permute_block(counts: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    arm_ids = np.repeat(np.arange(counts.size, dtype=int), counts)
+    rng.shuffle(arm_ids)
+    return arm_ids
+
+
 def _allocate_counts(n: int, weights: np.ndarray, rng: np.random.Generator) -> np.ndarray:
     """Largest-remainder allocation of ``n`` units. Ties are random."""
     if n < 0:
@@ -802,8 +994,10 @@ def _max_abs(values: Sequence[float]) -> float:
 __all__ = [
     "BalanceReport",
     "BalanceRow",
+    "BlockedAssignment",
     "StratifiedAssignment",
     "balance_report",
+    "blocked_randomization",
     "format_balance_report",
     "quantile_bins",
     "standardized_mean_difference",

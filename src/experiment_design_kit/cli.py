@@ -13,7 +13,7 @@ from .bayesian import bayesian_power_proportion, required_bayesian_sample_size
 from .cuped import cuped_adjust, simulate_cuped_data
 from .mde import minimum_detectable_effect, minimum_detectable_effect_proportion, minimum_detectable_effect_raw
 from .power import power_one_sample, power_proportion, power_two_sample
-from .randomization import balance_report, stratified_randomization
+from .randomization import balance_report, blocked_randomization, stratified_randomization
 from .reporting import compose_demo_report
 from .sequential import (
     sequential_mean_test,
@@ -65,6 +65,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Stratified randomization and covariate balance (SMD / chi-square)",
     )
     _add_randomize_args(rand)
+
+    block = sub.add_parser(
+        "block",
+        help="Permuted-block randomization with a fixed block size (2k for equal arms)",
+    )
+    _add_block_args(block)
 
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
@@ -275,6 +281,23 @@ def _add_randomize_args(p: argparse.ArgumentParser) -> None:
         type=int,
         default=3,
         help="Levels of the synthetic categorical covariate (default: 3)",
+    )
+    p.add_argument("--seed", type=int, default=0, help="Random seed (default: 0)")
+
+
+def _add_block_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--n", type=int, required=True, help="Number of units in enrollment order")
+    p.add_argument(
+        "--block-size",
+        type=int,
+        required=True,
+        help="Fixed block size; equal treatment/control requires 2k (2, 4, 6, ...)",
+    )
+    p.add_argument("--arms", type=int, default=2, help="Number of arms (default: 2)")
+    p.add_argument(
+        "--ratio",
+        default=None,
+        help="Comma-separated allocation weights, one per arm (default: equal)",
     )
     p.add_argument("--seed", type=int, default=0, help="Random seed (default: 0)")
 
@@ -800,6 +823,41 @@ def cmd_randomize(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_block(args: argparse.Namespace) -> int:
+    try:
+        ratio = _parse_floats(args.ratio, "--ratio") if args.ratio else None
+        result = blocked_randomization(
+            args.n,
+            block_size=args.block_size,
+            n_arms=args.arms,
+            ratio=ratio,
+            seed=args.seed,
+        )
+    except ValueError as exc:
+        print(f"block: {exc}", file=sys.stderr)
+        return 2
+
+    counts = ", ".join(
+        f"{label}={count}" for label, count in zip(result.arm_labels, result.arm_counts)
+    )
+    target = ", ".join(
+        f"{label}={count}" for label, count in zip(result.arm_labels, result.block_target)
+    )
+    print(
+        f"n: {result.n}  block size: {result.block_size}  "
+        f"blocks: {result.n_blocks}  seed: {result.seed}"
+    )
+    print(f"per complete block: {target}")
+    print(f"arm counts: {counts}")
+    if result.n % result.block_size:
+        final = result.block_arm_counts[-1]
+        final_desc = ", ".join(
+            f"{label}={count}" for label, count in zip(result.arm_labels, final)
+        )
+        print(f"final block: {final_desc}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     report = compose_demo_report(seed=args.seed)
     target = Path(args.output)
@@ -818,6 +876,7 @@ _COMMANDS = {
     "sequential": cmd_sequential,
     "bayesian": cmd_bayesian,
     "randomize": cmd_randomize,
+    "block": cmd_block,
     "report": cmd_report,
 }
 

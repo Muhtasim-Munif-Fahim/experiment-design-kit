@@ -10,7 +10,8 @@ alpha-spending bounds) for optional stopping, Bayesian power and
 sample-size planning for conversion tests (threshold or ROPE decisions
 via simulation), stratified randomization on categorical covariates or
 quantile bins with covariate balance diagnostics (standardized mean
-differences and chi-square), and a seedable A/B test outcome simulator
+differences and chi-square), blocked (permuted-block) randomization
+with a fixed block size, and a seedable A/B test outcome simulator
 with significance checking (chi-square and t-test).
 
 ## Install
@@ -63,6 +64,12 @@ experiment-design-kit randomize --n 240 --seed 0 --bins 4
 
 # Same workflow on a CSV (one row per unit). Continuous columns need --bins.
 experiment-design-kit randomize --csv path/to/units.csv --bins pre_metric=4 --categorical region
+
+# Permuted blocks of size 4 (2k with k=2): each block has 2 control and 2 treatment.
+experiment-design-kit block --n 100 --block-size 4 --seed 0
+
+# 1:2 allocation. The block size must be a multiple of 3.
+experiment-design-kit block --n 90 --block-size 6 --ratio 1,2 --seed 0
 
 # Run the full demo workflow and write a Markdown report.
 experiment-design-kit report -o examples/output/demo_report.md
@@ -319,4 +326,54 @@ builds a skewed categorical `region` and a normal `score`, then bins
 `unit_id`, and `user_id`. Integer-looking columns are categories unless
 named in `--bins` (for example `--bins age=4`); pass `--categorical` to
 force a chi-square test for numeric codes.
+
+## Blocked randomization
+
+Blocked randomization (permuted blocks) keeps the arm counts balanced
+in enrollment order. Units are filled from index 0. Every complete
+block has a fixed size and a fixed number of each arm; only the order
+inside the block is random. `seed` fixes that order.
+
+For equal treatment and control the block size is `2k`. A block of
+size 2 (`k = 1`) is one control and one treatment. A block of size 4
+(`k = 2`) is two of each. A block of size 6 is three of each. An odd
+size is rejected because a complete block would not be able to split
+evenly. Pass `ratio=(1, 2)` for a 1:2 scheme; the block size must then
+be a multiple of 3 (`3`, `6`, `9`, ...), and each complete block holds
+one share of control for every two shares of treatment. `n_arms=3`
+with equal weights uses a multiple of 3.
+
+After each complete block the cumulative counts sit on the ratio. If
+`n` is not a multiple of the block size, the last block is shorter and
+is filled with the same ratio, as evenly as integer counts allow. For
+an equal allocation the overall arm counts then differ by at most one
+unit.
+
+Smaller blocks restore balance sooner. Larger blocks leave more
+assignments inside the block unpredictable. Stratified randomization
+is what aligns the covariate mix across arms. A blocked assignment
+can still be passed to `balance_report` when those covariates are
+available.
+
+```python
+import numpy as np
+
+from experiment_design_kit import balance_report, blocked_randomization
+
+assigned = blocked_randomization(100, block_size=4, seed=0)
+print(assigned.arm_counts)            # (50, 50)
+print(assigned.block_target)          # (2, 2) control, treatment
+print(assigned.block_arm_counts[0])   # (2, 2) inside the first block
+
+unequal = blocked_randomization(90, block_size=6, ratio=(1, 2), seed=1)
+print(unequal.arm_counts)             # (30, 60)
+print(unequal.block_target)           # (2, 4)
+
+region = np.array(["us", "eu", "apac"] * 30)
+print(balance_report({"region": region}, unequal.assignment))
+```
+
+The `block` CLI prints the same counts. `--block-size` is required.
+`--ratio` is a comma-separated list of positive weights, and `--seed`
+reproduces the within-block order.
 
