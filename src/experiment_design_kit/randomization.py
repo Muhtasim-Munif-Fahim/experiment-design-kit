@@ -1,4 +1,4 @@
-"""Stratified and blocked randomization, plus covariate balance diagnostics.
+"""Stratified, blocked, and cluster randomization, plus covariate balance diagnostics.
 
 Stratified randomization assigns units to arms *inside* covariate strata so
 the arms have nearly the same mix of those covariates. Strata are the
@@ -34,6 +34,14 @@ be a multiple of the allocation period (3k for a 1:2 ratio, and so on).
 ``seed`` fixes the within-block permutations. When ``n`` is not a multiple
 of the block size, the final shorter block uses the same ratio and is as
 even as integer counts allow.
+
+Cluster randomization (Donner and Klar 2000) assigns every unit in a
+cluster to the same arm. ``cluster_ids`` has one id per unit. The unique
+clusters are ordered by id and then shuffled into arms with the same
+largest-remainder allocation used inside a stratum, so ``ratio`` counts
+clusters. The unit-level assignment repeats the cluster's arm. ``cluster_balance_report`` collapses covariates to one
+row per cluster (the constant within-cluster value, or the mean of a
+numeric covariate) and reuses the SMD and chi-square report.
 """
 from __future__ import annotations
 
@@ -121,6 +129,35 @@ class BlockedAssignment:
             for index, count in enumerate(row):
                 totals[index] += count
         return tuple(totals)
+
+
+@dataclass(frozen=True)
+class ClusterAssignment:
+    """Whole-cluster random assignment of units to arms.
+
+    ``assignment[i]`` is the arm of the unit at position ``i``. Every unit
+    with the same cluster id has the same arm. ``cluster_labels`` are the
+    unique ids in sorted order, and ``cluster_arms`` is the arm of each of
+    those clusters. ``arm_counts`` counts units. ``cluster_counts`` counts
+    clusters. Both are aligned with ``arm_labels``.
+    """
+
+    assignment: np.ndarray
+    cluster_ids: np.ndarray
+    cluster_labels: tuple[object, ...]
+    cluster_arms: np.ndarray
+    arm_labels: tuple[str, ...]
+    arm_counts: tuple[int, ...]
+    cluster_counts: tuple[int, ...]
+    seed: int | None
+
+    @property
+    def n(self) -> int:
+        return int(self.assignment.size)
+
+    @property
+    def n_clusters(self) -> int:
+        return len(self.cluster_labels)
 
 
 @dataclass(frozen=True)
@@ -347,6 +384,138 @@ def blocked_randomization(
         block_arm_counts=tuple(block_rows),
         block_target=tuple(int(count) for count in target),
         seed=seed,
+    )
+
+
+def cluster_randomization(
+    cluster_ids: np.ndarray,
+    *,
+    n_arms: int = 2,
+    arm_labels: Sequence[str] | None = None,
+    ratio: Sequence[float] | None = None,
+    seed: int | None = None,
+) -> ClusterAssignment:
+    """Assign whole clusters to arms, and every unit to its cluster's arm.
+
+    Clusters are the randomization units. Two units that share a cluster
+    id always receive the same arm. Unique cluster ids are sorted, then
+    allocated with the largest-remainder method and shuffled. ``ratio``
+    counts clusters: a 1:2 ratio puts about twice as many clusters on the
+    second arm. Sorting by id keeps that mapping when the rows are
+    reordered. ``seed`` fixes the draw. ``None`` uses fresh entropy.
+
+    Parameters
+    ----------
+    cluster_ids:
+        One cluster id per unit. Ids may be integers or strings. Missing
+        values are rejected. At least ``n_arms`` distinct clusters.
+    n_arms:
+        Number of arms. At least 2, and no greater than the number of
+        clusters.
+    arm_labels:
+        Label for each arm, in arm-index order. Defaults to ``control`` and
+        ``treatment`` when there are two arms, otherwise ``arm_0``, ...
+    ratio:
+        Positive allocation weights, one per arm. ``None`` uses equal
+        allocation. Weights are scaled, so ``(1, 2)`` and ``(2, 4)`` are
+        the same scheme. Counts are clusters, not units.
+    seed:
+        Seed for the cluster shuffle and any remainder tie-break. ``None``
+        uses fresh entropy.
+
+    Returns
+    -------
+    ClusterAssignment
+        Arm index per unit, aligned with ``cluster_ids``, plus the cluster
+        counts and the unit counts on each arm.
+    """
+    if isinstance(n_arms, bool) or not isinstance(n_arms, int) or n_arms < 2:
+        raise ValueError("n_arms must be an integer >= 2")
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int)):
+        raise ValueError("seed must be an integer or None")
+    labels = _arm_labels(n_arms, arm_labels)
+    weights = _allocation_weights(n_arms, ratio)
+    codes, cluster_labels, stored_ids = _cluster_index(cluster_ids)
+    n_clusters = len(cluster_labels)
+    if n_clusters < n_arms:
+        raise ValueError(f"need at least {n_arms} clusters to assign {n_arms} arms")
+
+    rng = np.random.default_rng(seed)
+    counts = _allocate_counts(n_clusters, weights, rng)
+    cluster_arms = np.repeat(np.arange(n_arms, dtype=int), counts)
+    rng.shuffle(cluster_arms)
+    assignment = cluster_arms[codes]
+    arm_counts = tuple(int(np.sum(assignment == arm)) for arm in range(n_arms))
+    cluster_counts = tuple(int(count) for count in counts)
+    return ClusterAssignment(
+        assignment=assignment,
+        cluster_ids=stored_ids,
+        cluster_labels=cluster_labels,
+        cluster_arms=cluster_arms,
+        arm_labels=labels,
+        arm_counts=arm_counts,
+        cluster_counts=cluster_counts,
+        seed=seed,
+    )
+
+
+def cluster_balance_report(
+    covariates: Mapping[str, np.ndarray],
+    assignment: np.ndarray,
+    cluster_ids: np.ndarray,
+    *,
+    arm_labels: Sequence[str] | None = None,
+    reference_arm: int = 0,
+    categorical: Sequence[str] | None = None,
+    continuous: Sequence[str] | None = None,
+) -> BalanceReport:
+    """Balance an assignment on cluster-level covariate summaries.
+
+    Each cluster contributes one row. A covariate that is constant within
+    every cluster keeps that value. A numeric covariate that varies within
+    a cluster is replaced by the within-cluster mean. A categorical
+    covariate that varies within a cluster is rejected: the cluster, not
+    the unit, is the row of the table. The returned :class:`BalanceReport`
+    is the usual SMD / chi-square report on those rows, so its
+    ``arm_counts`` count clusters.
+    """
+    if not isinstance(covariates, Mapping) or isinstance(covariates, (str, bytes)):
+        raise ValueError("covariates must be a mapping of name to 1-d values")
+    if len(covariates) == 0:
+        raise ValueError("at least one covariate is required")
+    categorical_names = _name_set("categorical", categorical)
+    continuous_names = _name_set("continuous", continuous)
+    overlap = categorical_names & continuous_names
+    if overlap:
+        joined = ", ".join(sorted(overlap))
+        raise ValueError(f"covariates cannot be both categorical and continuous: {joined}")
+    unknown = (categorical_names | continuous_names) - set(covariates)
+    if unknown:
+        joined = ", ".join(repr(name) for name in sorted(unknown))
+        raise ValueError(f"unknown covariate names: {joined}")
+
+    codes, _labels, _stored = _cluster_index(cluster_ids)
+    arms = _integer_assignment(assignment)
+    if arms.shape != codes.shape:
+        raise ValueError("assignment and cluster_ids must have the same length")
+    cluster_arms = _arms_of_clusters(arms, codes)
+
+    collapsed: dict[str, np.ndarray] = {}
+    for name, values in covariates.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("covariate names must be non-empty strings")
+        array = _as_1d(name, values)
+        if array.shape != codes.shape:
+            raise ValueError(f"{name} and cluster_ids must have the same length")
+        kind = _balance_kind(name, array, categorical_names, continuous_names)
+        collapsed[name] = _collapse_to_clusters(name, array, codes, kind)
+    return balance_report(
+        collapsed,
+        cluster_arms,
+        arm_labels=arm_labels,
+        reference_arm=reference_arm,
+        categorical=categorical,
+        continuous=continuous,
     )
 
 
@@ -976,6 +1145,116 @@ def _chi_square(table: np.ndarray) -> tuple[float, float, int]:
     return float(chi2), float(p_value), int(dof)
 
 
+def _cluster_scalar(value: object) -> object:
+    scalar = _python_scalar(value)
+    if isinstance(scalar, np.ndarray):
+        raise ValueError("cluster_ids must be scalar ids")
+    if scalar is None:
+        raise ValueError("cluster_ids must not contain missing values")
+    if isinstance(scalar, bool):
+        return bool(scalar)
+    if isinstance(scalar, int):
+        return int(scalar)
+    if isinstance(scalar, float):
+        if not math.isfinite(scalar):
+            raise ValueError("cluster_ids must not contain missing values")
+        return float(scalar)
+    if isinstance(scalar, (str, bytes)):
+        return scalar
+    try:
+        hash(scalar)
+    except TypeError as exc:
+        raise ValueError("cluster_ids must be scalar ids") from exc
+    return scalar
+
+
+def _cluster_sort_key(scalar: object) -> tuple:
+    return (*_level_sort_key(scalar), type(scalar).__name__)
+
+
+def _cluster_index(
+    cluster_ids: np.ndarray,
+) -> tuple[np.ndarray, tuple[object, ...], np.ndarray]:
+    """Map units to clusters sorted by id.
+
+    Returns ``(codes, labels, copy)``. ``labels[codes[i]]`` is the cluster
+    of unit ``i``. Sorting is by id, so row order does not change codes.
+    """
+    array = _as_1d("cluster_ids", cluster_ids)
+    scalars = [_cluster_scalar(value) for value in array]
+    identities = [(type(scalar).__name__, scalar) for scalar in scalars]
+    unique = tuple(sorted(set(identities), key=lambda ident: _cluster_sort_key(ident[1])))
+    index = {ident: position for position, ident in enumerate(unique)}
+    codes = np.fromiter(
+        (index[ident] for ident in identities),
+        dtype=int,
+        count=len(identities),
+    )
+    labels = tuple(ident[1] for ident in unique)
+    return codes, labels, array.copy()
+
+
+def _cluster_groups(
+    codes: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    order = np.argsort(codes, kind="mergesort")
+    sorted_codes = codes[order]
+    breaks = np.flatnonzero(np.diff(sorted_codes)) + 1
+    starts = np.concatenate(([0], breaks))
+    ends = np.concatenate((breaks, [codes.size]))
+    return order, starts, ends, sorted_codes
+
+
+def _arms_of_clusters(arms: np.ndarray, codes: np.ndarray) -> np.ndarray:
+    n_clusters = int(codes.max()) + 1
+    cluster_arms = np.empty(n_clusters, dtype=int)
+    order, starts, ends, sorted_codes = _cluster_groups(codes)
+    for start, end in zip(starts, ends):
+        group = arms[order[start:end]]
+        if np.any(group != group[0]):
+            raise ValueError("assignment splits a cluster across arms")
+        cluster_arms[int(sorted_codes[start])] = int(group[0])
+    return cluster_arms
+
+
+def _same_scalar(left: object, right: object) -> bool:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return isinstance(left, bool) and isinstance(right, bool) and bool(left) is bool(right)
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return float(left) == float(right)
+    return left == right
+
+
+def _collapse_to_clusters(
+    name: str,
+    values: np.ndarray,
+    codes: np.ndarray,
+    kind: str,
+) -> np.ndarray:
+    n_clusters = int(codes.max()) + 1
+    order, starts, ends, sorted_codes = _cluster_groups(codes)
+    if kind == "continuous":
+        numeric = _numeric_1d(name, values)
+        means = np.empty(n_clusters, dtype=float)
+        ordered = numeric[order]
+        for start, end in zip(starts, ends):
+            means[int(sorted_codes[start])] = float(np.mean(ordered[start:end]))
+        return means
+    summaries: list[object] = [None] * n_clusters
+    for start, end in zip(starts, ends):
+        chunk = values[order[start:end]]
+        first = _python_scalar(chunk[0])
+        for value in chunk[1:]:
+            if not _same_scalar(first, _python_scalar(value)):
+                raise ValueError(
+                    f"{name} varies within a cluster; cluster balance uses one "
+                    "value per cluster, so a categorical covariate must be "
+                    "constant within each cluster"
+                )
+        summaries[int(sorted_codes[start])] = first
+    return np.asarray(summaries, dtype=object)
+
+
 def _max_abs(values: Sequence[float]) -> float:
     if not values:
         return 0.0
@@ -995,9 +1274,12 @@ __all__ = [
     "BalanceReport",
     "BalanceRow",
     "BlockedAssignment",
+    "ClusterAssignment",
     "StratifiedAssignment",
     "balance_report",
     "blocked_randomization",
+    "cluster_balance_report",
+    "cluster_randomization",
     "format_balance_report",
     "quantile_bins",
     "standardized_mean_difference",

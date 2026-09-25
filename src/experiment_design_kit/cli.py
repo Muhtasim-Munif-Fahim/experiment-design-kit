@@ -13,7 +13,13 @@ from .bayesian import bayesian_power_proportion, required_bayesian_sample_size
 from .cuped import cuped_adjust, simulate_cuped_data
 from .mde import minimum_detectable_effect, minimum_detectable_effect_proportion, minimum_detectable_effect_raw
 from .power import power_one_sample, power_proportion, power_two_sample
-from .randomization import balance_report, blocked_randomization, stratified_randomization
+from .randomization import (
+    balance_report,
+    blocked_randomization,
+    cluster_balance_report,
+    cluster_randomization,
+    stratified_randomization,
+)
 from .reporting import compose_demo_report
 from .sequential import (
     sequential_mean_test,
@@ -71,6 +77,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Permuted-block randomization with a fixed block size (2k for equal arms)",
     )
     _add_block_args(block)
+
+    cluster = sub.add_parser(
+        "cluster",
+        help="Cluster randomization: assign whole clusters to arms",
+    )
+    _add_cluster_args(cluster)
 
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
@@ -281,6 +293,38 @@ def _add_randomize_args(p: argparse.ArgumentParser) -> None:
         type=int,
         default=3,
         help="Levels of the synthetic categorical covariate (default: 3)",
+    )
+    p.add_argument("--seed", type=int, default=0, help="Random seed (default: 0)")
+
+
+def _add_cluster_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--csv",
+        default=None,
+        help="CSV with one row per unit (id/unit_id/user_id columns are ignored)",
+    )
+    p.add_argument(
+        "--cluster",
+        default="cluster",
+        help="Cluster-id column in the CSV (default: cluster)",
+    )
+    p.add_argument("--n", type=int, default=120, help="Units in the synthetic example (default: 120)")
+    p.add_argument(
+        "--clusters",
+        type=int,
+        default=12,
+        help="Clusters in the synthetic example (default: 12)",
+    )
+    p.add_argument("--arms", type=int, default=2, help="Number of arms (default: 2)")
+    p.add_argument(
+        "--ratio",
+        default=None,
+        help="Comma-separated allocation weights, one per arm (default: equal). Weights count clusters.",
+    )
+    p.add_argument(
+        "--categorical",
+        default=None,
+        help="Comma-separated names to treat as categories in the cluster balance report",
     )
     p.add_argument("--seed", type=int, default=0, help="Random seed (default: 0)")
 
@@ -823,6 +867,104 @@ def cmd_randomize(args: argparse.Namespace) -> int:
     return 0
 
 
+def _synthetic_cluster_data(
+    n: int, n_clusters: int, seed: int
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    if isinstance(n, bool) or not isinstance(n, int) or n < 2:
+        raise ValueError("--n must be an integer >= 2")
+    if isinstance(n_clusters, bool) or not isinstance(n_clusters, int) or n_clusters < 2:
+        raise ValueError("--clusters must be an integer >= 2")
+    if n < n_clusters:
+        raise ValueError("--n must be at least --clusters")
+    rng = np.random.default_rng(seed)
+    sizes = rng.multinomial(n - n_clusters, np.full(n_clusters, 1.0 / n_clusters)) + 1
+    cluster_ids = np.repeat(np.arange(n_clusters, dtype=int), sizes)
+    regions = np.array(["north", "south", "east"])
+    region = regions[np.arange(n_clusters) % 3][cluster_ids]
+    shift = (np.arange(n_clusters) % 5) * 0.15
+    score = rng.normal(loc=shift[cluster_ids], scale=1.0)
+    return cluster_ids, {"region": region, "score": score}
+
+
+def _load_cluster_csv(
+    path: Path, cluster_column: str
+) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    with path.open(newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        if not reader.fieldnames:
+            raise ValueError("CSV is missing a header row")
+        fieldnames = [name.strip() for name in reader.fieldnames if name and name.strip()]
+        if cluster_column not in fieldnames:
+            raise ValueError(f"CSV is missing cluster column {cluster_column!r}")
+        covariate_names = [
+            name
+            for name in fieldnames
+            if name != cluster_column and name.lower() not in _ID_COLUMNS
+        ]
+        clusters: list[str] = []
+        buckets: dict[str, list[str]] = {name: [] for name in covariate_names}
+        for row in reader:
+            raw_cluster = row.get(cluster_column)
+            clusters.append("" if raw_cluster is None else raw_cluster.strip())
+            for name in covariate_names:
+                value = row.get(name)
+                buckets[name].append("" if value is None else value.strip())
+    if not clusters:
+        raise ValueError("CSV has no data rows")
+    if any(value == "" for value in clusters):
+        raise ValueError(f"column {cluster_column} contains empty values")
+    cluster_ids = _parse_covariate_column(cluster_column, clusters)
+    covariates = {
+        name: _parse_covariate_column(name, values) for name, values in buckets.items()
+    }
+    return cluster_ids, covariates
+
+
+def cmd_cluster(args: argparse.Namespace) -> int:
+    try:
+        ratio = _parse_floats(args.ratio, "--ratio") if args.ratio else None
+        categorical = _parse_name_list(args.categorical) if args.categorical else None
+        if args.csv:
+            cluster_ids, covariates = _load_cluster_csv(Path(args.csv), args.cluster)
+            source = f"csv:{args.csv}"
+        else:
+            cluster_ids, covariates = _synthetic_cluster_data(args.n, args.clusters, args.seed)
+            source = f"synthetic n={args.n} clusters={args.clusters} seed={args.seed}"
+        result = cluster_randomization(
+            cluster_ids,
+            n_arms=args.arms,
+            ratio=ratio,
+            seed=args.seed,
+        )
+        report = None
+        if covariates:
+            report = cluster_balance_report(
+                covariates,
+                result.assignment,
+                result.cluster_ids,
+                arm_labels=result.arm_labels,
+                categorical=categorical,
+            )
+    except (OSError, ValueError) as exc:
+        print(f"cluster: {exc}", file=sys.stderr)
+        return 2
+
+    cluster_counts = ", ".join(
+        f"{label}={count}" for label, count in zip(result.arm_labels, result.cluster_counts)
+    )
+    arm_counts = ", ".join(
+        f"{label}={count}" for label, count in zip(result.arm_labels, result.arm_counts)
+    )
+    print(f"source: {source}")
+    print(f"n: {result.n}  clusters: {result.n_clusters}  seed: {result.seed}")
+    print(f"cluster counts: {cluster_counts}")
+    print(f"arm counts: {arm_counts}")
+    if report is not None:
+        print("cluster-level covariate balance:")
+        print(report)
+    return 0
+
+
 def cmd_block(args: argparse.Namespace) -> int:
     try:
         ratio = _parse_floats(args.ratio, "--ratio") if args.ratio else None
@@ -877,6 +1019,7 @@ _COMMANDS = {
     "bayesian": cmd_bayesian,
     "randomize": cmd_randomize,
     "block": cmd_block,
+    "cluster": cmd_cluster,
     "report": cmd_report,
 }
 
