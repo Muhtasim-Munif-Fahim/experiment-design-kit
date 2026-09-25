@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "experiment-design-kit"
 version = "0.1.0"
-description = "Effect-size and sample-size calculators, power analysis, MDE, CUPED variance reduction, sequential always-valid inference, Bayesian conversion-test planning, stratified randomization with covariate balance diagnostics, blocked (permuted-block) randomization, and A/B test simulation for experiment design."
+description = "Effect-size and sample-size calculators, power analysis, MDE, CUPED variance reduction, sequential always-valid inference, Bayesian conversion-test planning, stratified randomization with covariate balance diagnostics, blocked (permuted-block) randomization, cluster randomization, and A/B test simulation for experiment design."
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}

@@ -449,6 +449,94 @@ def test_block_three_arms() -> None:
     assert "arm_2=3" in out
 
 
+def test_cluster_synthetic_reports_cluster_balance() -> None:
+    out = _run(["cluster", "--n", "36", "--clusters", "12", "--seed", "0"])
+    assert "source: synthetic n=36 clusters=12 seed=0" in out
+    assert "clusters: 12" in out
+    assert "seed: 0" in out
+    assert "cluster counts: control=6, treatment=6" in out
+    assert "cluster-level covariate balance:" in out
+    assert "region (categorical)" in out
+    assert "score (continuous)" in out
+    assert "max |SMD|:" in out
+    counts = re.search(r"arm counts: control=(\d+), treatment=(\d+)", out)
+    assert counts is not None
+    assert int(counts.group(1)) + int(counts.group(2)) == 36
+
+
+def test_cluster_ratio_counts_clusters() -> None:
+    out = _run(
+        ["cluster", "--n", "30", "--clusters", "9", "--ratio", "1,2", "--seed", "1"]
+    )
+    assert "cluster counts: control=3, treatment=6" in out
+    counts = re.search(r"arm counts: control=(\d+), treatment=(\d+)", out)
+    assert counts is not None
+    assert int(counts.group(1)) + int(counts.group(2)) == 30
+
+
+def test_cluster_three_arms() -> None:
+    out = _run(["cluster", "--n", "18", "--clusters", "9", "--arms", "3", "--seed", "0"])
+    assert "cluster counts: arm_0=3, arm_1=3, arm_2=3" in out
+
+
+def test_cluster_from_csv(tmp_path: Path) -> None:
+    csv_path = tmp_path / "clusters.csv"
+    lines = ["id,cluster,region,score"]
+    rows = [
+        ("a", "east", "0.10"),
+        ("a", "east", "0.20"),
+        ("b", "west", "1.00"),
+        ("b", "west", "1.10"),
+        ("c", "east", "0.30"),
+        ("c", "east", "0.40"),
+        ("d", "west", "1.20"),
+        ("d", "west", "1.30"),
+    ]
+    for index, (cluster, region, score) in enumerate(rows):
+        lines.append(f"u{index},{cluster},{region},{score}")
+    csv_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    out = _run(
+        [
+            "cluster",
+            "--csv",
+            str(csv_path),
+            "--cluster",
+            "cluster",
+            "--categorical",
+            "region",
+            "--seed",
+            "0",
+        ]
+    )
+    assert f"source: csv:{csv_path}" in out
+    assert "clusters: 4" in out
+    assert "cluster counts: control=2, treatment=2" in out
+    assert "arm counts: control=4, treatment=4" in out
+    assert "region (categorical)" in out
+    assert "score (continuous)" in out
+
+
+def test_cluster_rejects_too_few_clusters_and_a_split_category(tmp_path: Path) -> None:
+    buf = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(buf), redirect_stderr(err):
+        rc = main(["cluster", "--n", "10", "--clusters", "4", "--arms", "5", "--seed", "0"])
+    assert rc == 2
+    assert "clusters" in err.getvalue()
+
+    csv_path = tmp_path / "split.csv"
+    csv_path.write_text(
+        "cluster,region\na,east\na,west\nb,east\nb,east\n",
+        encoding="utf-8",
+    )
+    buf = io.StringIO()
+    err = io.StringIO()
+    with redirect_stdout(buf), redirect_stderr(err):
+        rc = main(["cluster", "--csv", str(csv_path), "--seed", "0"])
+    assert rc == 2
+    assert "varies within a cluster" in err.getvalue()
+
+
 def test_block_rejects_odd_size_for_equal_arms() -> None:
     buf = io.StringIO()
     err = io.StringIO()

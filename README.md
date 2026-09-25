@@ -11,7 +11,8 @@ sample-size planning for conversion tests (threshold or ROPE decisions
 via simulation), stratified randomization on categorical covariates or
 quantile bins with covariate balance diagnostics (standardized mean
 differences and chi-square), blocked (permuted-block) randomization
-with a fixed block size, and a seedable A/B test outcome simulator
+with a fixed block size, cluster randomization that assigns whole
+clusters to arms, and a seedable A/B test outcome simulator
 with significance checking (chi-square and t-test).
 
 ## Install
@@ -70,6 +71,12 @@ experiment-design-kit block --n 100 --block-size 4 --seed 0
 
 # 1:2 allocation. The block size must be a multiple of 3.
 experiment-design-kit block --n 90 --block-size 6 --ratio 1,2 --seed 0
+
+# Cluster randomization: whole clusters share an arm. The ratio counts clusters.
+experiment-design-kit cluster --n 120 --clusters 12 --seed 0
+
+# Same workflow on a CSV. Balance is computed on one row per cluster.
+experiment-design-kit cluster --csv path/to/units.csv --cluster school --categorical region
 
 # Run the full demo workflow and write a Markdown report.
 experiment-design-kit report -o examples/output/demo_report.md
@@ -376,4 +383,53 @@ print(balance_report({"region": region}, unequal.assignment))
 The `block` CLI prints the same counts. `--block-size` is required.
 `--ratio` is a comma-separated list of positive weights, and `--seed`
 reproduces the within-block order.
+
+## Cluster randomization
+
+Cluster randomization assigns every unit in a cluster to the same arm.
+`cluster_ids` is one id per unit (a school, a clinic, a market). The
+distinct ids are the randomization units. They are sorted by id, then
+shuffled into arms, and that arm is written onto every unit in the
+cluster. Sorting by id keeps the cluster-to-arm mapping when the rows
+are reordered. `seed` fixes the shuffle.
+
+`ratio` counts clusters. `ratio=(1, 2)` puts about one cluster on
+control for every two clusters on treatment. Unequal cluster sizes can
+leave the unit counts uneven: `arm_counts` is units and `cluster_counts`
+is clusters. Equal allocation keeps the cluster counts within one
+cluster of each other.
+
+`cluster_balance_report` checks covariate balance at the cluster level.
+Each cluster is one row. A covariate that is constant within every
+cluster keeps that value. A numeric covariate that varies within a
+cluster is replaced by the within-cluster mean. A categorical covariate
+that varies within a cluster is rejected. The report is the usual
+standardized-mean-difference and chi-square table, and its arm counts
+are cluster counts.
+
+```python
+import numpy as np
+
+from experiment_design_kit import cluster_balance_report, cluster_randomization
+
+cluster_ids = np.repeat(np.arange(12), 10)  # 12 clusters, 10 units each
+assigned = cluster_randomization(cluster_ids, ratio=(1, 2), seed=0)
+print(assigned.cluster_counts)  # (4, 8) clusters
+print(assigned.arm_counts)      # (40, 80) units
+
+region = np.array(["north", "south", "east"])[cluster_ids % 3]
+print(cluster_balance_report(
+    {"region": region},
+    assigned.assignment,
+    assigned.cluster_ids,
+    categorical=["region"],
+))
+```
+
+The `cluster` CLI prints the same counts and, when covariates are
+present, the cluster-level balance report. Without `--csv` it builds
+`n` units in `--clusters` groups, with a cluster-level `region` and a
+unit-level `score` (balanced on the cluster mean). A CSV uses
+`--cluster` for the id column (default `cluster`) and treats the other
+columns, except `id`, `unit_id`, and `user_id`, as covariates.
 
