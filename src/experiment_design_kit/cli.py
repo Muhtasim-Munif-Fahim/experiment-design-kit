@@ -19,6 +19,7 @@ from .randomization import (
     cluster_balance_report,
     cluster_randomization,
     stratified_randomization,
+    switchback_randomization,
 )
 from .reporting import compose_demo_report
 from .sequential import (
@@ -83,6 +84,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Cluster randomization: assign whole clusters to arms",
     )
     _add_cluster_args(cluster)
+
+    switchback = sub.add_parser(
+        "switchback",
+        help="Switchback randomization: assign consecutive time blocks to arms",
+    )
+    _add_switchback_args(switchback)
 
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
@@ -1000,6 +1007,61 @@ def cmd_block(args: argparse.Namespace) -> int:
     return 0
 
 
+
+
+def _add_switchback_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--n", type=int, default=48, help="Number of sequential time periods (default: 48)")
+    p.add_argument(
+        "--block-length",
+        type=int,
+        default=4,
+        help="Periods per switchback block (default: 4)",
+    )
+    p.add_argument("--arms", type=int, default=2, help="Number of arms (default: 2)")
+    p.add_argument(
+        "--ratio",
+        default=None,
+        help="Comma-separated allocation weights, one per arm (default: equal). Weights count blocks.",
+    )
+    p.add_argument("--seed", type=int, default=0, help="Random seed (default: 0)")
+
+
+def cmd_switchback(args: argparse.Namespace) -> int:
+    try:
+        ratio = _parse_floats(args.ratio, "--ratio") if args.ratio else None
+        result = switchback_randomization(
+            args.n,
+            block_length=args.block_length,
+            n_arms=args.arms,
+            ratio=ratio,
+            seed=args.seed,
+        )
+    except ValueError as exc:
+        print(f"switchback: {exc}", file=sys.stderr)
+        return 2
+
+    block_counts = ", ".join(
+        f"{label}={count}" for label, count in zip(result.arm_labels, result.block_counts)
+    )
+    arm_counts = ", ".join(
+        f"{label}={count}" for label, count in zip(result.arm_labels, result.arm_counts)
+    )
+    print(
+        f"n: {result.n}  block length: {result.block_length}  "
+        f"blocks: {result.n_blocks}  seed: {result.seed}"
+    )
+    print(f"block counts: {block_counts}")
+    print(f"arm counts: {arm_counts}")
+    if result.n % result.block_length:
+        final_arm = int(result.block_arms[-1])
+        final_len = int(result.n - (result.n_blocks - 1) * result.block_length)
+        print(
+            f"final block: {result.arm_labels[final_arm]} "
+            f"({final_len} period{'s' if final_len != 1 else ''})"
+        )
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     report = compose_demo_report(seed=args.seed)
     target = Path(args.output)
@@ -1020,6 +1082,7 @@ _COMMANDS = {
     "randomize": cmd_randomize,
     "block": cmd_block,
     "cluster": cmd_cluster,
+    "switchback": cmd_switchback,
     "report": cmd_report,
 }
 

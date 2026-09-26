@@ -1,4 +1,4 @@
-"""Stratified, blocked, and cluster randomization, plus covariate balance diagnostics.
+"""Stratified, blocked, cluster, and switchback randomization, plus covariate balance diagnostics.
 
 Stratified randomization assigns units to arms *inside* covariate strata so
 the arms have nearly the same mix of those covariates. Strata are the
@@ -42,6 +42,13 @@ largest-remainder allocation used inside a stratum, so ``ratio`` counts
 clusters. The unit-level assignment repeats the cluster's arm. ``cluster_balance_report`` collapses covariates to one
 row per cluster (the constant within-cluster value, or the mean of a
 numeric covariate) and reuses the SMD and chi-square report.
+
+Switchback randomization (time-based A/B) assigns consecutive time
+blocks to treatments. Periods ``0 .. n-1`` are partitioned into blocks
+of length ``block_length``; each block draws one arm (with the usual
+largest-remainder allocation across blocks) and every period inside
+the block shares that arm. A short final block is allowed when ``n``
+is not a multiple of ``block_length``.
 """
 from __future__ import annotations
 
@@ -457,6 +464,130 @@ def cluster_randomization(
         cluster_counts=cluster_counts,
         seed=seed,
     )
+
+
+
+@dataclass(frozen=True)
+class SwitchbackAssignment:
+    """Time-based switchback assignment of periods to arms.
+
+    ``assignment[t]`` is the arm of period ``t`` in chronological order.
+    ``block_ids[t]`` is that period's block. Every block except a possible
+    short final block has length ``block_length``. ``block_arms[b]`` is the
+    single arm assigned to block ``b``. ``block_counts`` counts blocks per
+    arm; ``arm_counts`` counts periods per arm.
+    """
+
+    assignment: np.ndarray
+    block_ids: np.ndarray
+    block_length: int
+    block_arms: np.ndarray
+    arm_labels: tuple[str, ...]
+    arm_counts: tuple[int, ...]
+    block_counts: tuple[int, ...]
+    seed: int | None
+
+    @property
+    def n(self) -> int:
+        return int(self.assignment.size)
+
+    @property
+    def n_blocks(self) -> int:
+        return int(self.block_arms.size)
+
+
+def switchback_randomization(
+    n: int,
+    block_length: int,
+    *,
+    n_arms: int = 2,
+    arm_labels: Sequence[str] | None = None,
+    ratio: Sequence[float] | None = None,
+    seed: int | None = None,
+) -> SwitchbackAssignment:
+    """Assign consecutive time blocks to arms (switchback design).
+
+    Periods ``0, ..., n - 1`` are the randomization units in time order.
+    They are partitioned into blocks of ``block_length`` consecutive
+    periods (the final block may be shorter). Each block is assigned one
+    arm; every period inside a block shares that arm. Block-level arm
+    counts follow ``ratio`` via the same largest-remainder allocation used
+    by :func:`cluster_randomization`. ``seed`` fixes the block shuffle.
+
+    Parameters
+    ----------
+    n:
+        Number of sequential time periods. At least 1.
+    block_length:
+        Periods per switchback block. At least 1, and no greater than ``n``.
+    n_arms:
+        Number of arms. At least 2, and no greater than the number of
+        blocks.
+    arm_labels:
+        Label for each arm, in arm-index order. Defaults to ``control`` and
+        ``treatment`` when there are two arms, otherwise ``arm_0``, ...
+    ratio:
+        Positive allocation weights, one per arm. ``None`` uses equal
+        allocation. Weights count *blocks*, not periods.
+    seed:
+        Seed for the block shuffle and any remainder tie-break. ``None``
+        uses fresh entropy.
+
+    Returns
+    -------
+    SwitchbackAssignment
+        Arm index per period, plus block ids and block-level arm counts.
+    """
+    if isinstance(n, bool) or not isinstance(n, int) or n < 1:
+        raise ValueError("n must be an integer >= 1")
+    if (
+        isinstance(block_length, bool)
+        or not isinstance(block_length, int)
+        or block_length < 1
+    ):
+        raise ValueError("block_length must be an integer >= 1")
+    if block_length > n:
+        raise ValueError("block_length must be <= n")
+    if isinstance(n_arms, bool) or not isinstance(n_arms, int) or n_arms < 2:
+        raise ValueError("n_arms must be an integer >= 2")
+    if seed is not None and (isinstance(seed, bool) or not isinstance(seed, int)):
+        raise ValueError("seed must be an integer or None")
+
+    n_blocks = (n + block_length - 1) // block_length
+    if n_blocks < n_arms:
+        raise ValueError(
+            f"need at least {n_arms} blocks to assign {n_arms} arms; "
+            f"got {n_blocks} blocks for n={n}, block_length={block_length}"
+        )
+
+    labels = _arm_labels(n_arms, arm_labels)
+    weights = _allocation_weights(n_arms, ratio)
+    rng = np.random.default_rng(seed)
+    counts = _allocate_counts(n_blocks, weights, rng)
+    block_arms = np.repeat(np.arange(n_arms, dtype=int), counts)
+    rng.shuffle(block_arms)
+
+    block_ids = np.empty(n, dtype=int)
+    assignment = np.empty(n, dtype=int)
+    for b in range(n_blocks):
+        start = b * block_length
+        stop = min(start + block_length, n)
+        block_ids[start:stop] = b
+        assignment[start:stop] = block_arms[b]
+
+    arm_counts = tuple(int(np.sum(assignment == arm)) for arm in range(n_arms))
+    block_counts = tuple(int(count) for count in counts)
+    return SwitchbackAssignment(
+        assignment=assignment,
+        block_ids=block_ids,
+        block_length=int(block_length),
+        block_arms=block_arms,
+        arm_labels=labels,
+        arm_counts=arm_counts,
+        block_counts=block_counts,
+        seed=seed,
+    )
+
 
 
 def cluster_balance_report(
