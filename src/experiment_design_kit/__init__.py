@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, stratified, blocked, and cluster randomization, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, stratified, blocked, cluster, and switchback randomization, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -32,6 +32,7 @@ from .randomization import (
     BlockedAssignment,
     ClusterAssignment,
     StratifiedAssignment,
+    SwitchbackAssignment,
     balance_report,
     blocked_randomization,
     cluster_balance_report,
@@ -40,6 +41,7 @@ from .randomization import (
     quantile_bins,
     standardized_mean_difference,
     stratified_randomization,
+    switchback_randomization,
 )
 from .reporting import (
     ContinuousScenario,
@@ -109,11 +111,13 @@ __all__ = [
     "BalanceRow",
     "BlockedAssignment",
     "ClusterAssignment",
+    "SwitchbackAssignment",
     "StratifiedAssignment",
     "balance_report",
     "blocked_randomization",
     "cluster_balance_report",
     "cluster_randomization",
+    "switchback_randomization",
     "format_balance_report",
     "quantile_bins",
     "standardized_mean_difference",

@@ -12,7 +12,8 @@ via simulation), stratified randomization on categorical covariates or
 quantile bins with covariate balance diagnostics (standardized mean
 differences and chi-square), blocked (permuted-block) randomization
 with a fixed block size, cluster randomization that assigns whole
-clusters to arms, and a seedable A/B test outcome simulator
+clusters to arms, switchback / time-based block randomization,
+and a seedable A/B test outcome simulator
 with significance checking (chi-square and t-test).
 
 ## Install
@@ -74,6 +75,9 @@ experiment-design-kit block --n 90 --block-size 6 --ratio 1,2 --seed 0
 
 # Cluster randomization: whole clusters share an arm. The ratio counts clusters.
 experiment-design-kit cluster --n 120 --clusters 12 --seed 0
+
+# Switchback: consecutive time blocks share an arm. The ratio counts blocks.
+experiment-design-kit switchback --n 48 --block-length 4 --seed 0
 
 # Same workflow on a CSV. Balance is computed on one row per cluster.
 experiment-design-kit cluster --csv path/to/units.csv --cluster school --categorical region
@@ -202,6 +206,24 @@ One-sample helpers `sequential_proportion_test` (vs `null_p`) and
 parameter `m` (default `0.01`) is the relative variance of the mixing
 distribution: smaller `m` is more conservative. Spending functions are
 evaluated at the information fraction `t = n / n_planned`.
+
+
+## Switchback randomization
+
+Switchback designs assign *time* rather than units. Periods `0 .. n-1` are
+split into blocks of `block_length` consecutive periods; each block draws
+one arm and every period inside the block shares it. `ratio` counts blocks
+(the same largest-remainder rule as cluster randomization). A short final
+block is allowed when `n` is not a multiple of `block_length`.
+
+```python
+from experiment_design_kit import switchback_randomization
+
+assigned = switchback_randomization(48, block_length=4, ratio=(1, 1), seed=0)
+print(assigned.block_counts)  # blocks per arm
+print(assigned.arm_counts)    # periods per arm
+print(assigned.assignment[:8])
+```
 
 ## Bayesian power (conversion A/B tests)
 

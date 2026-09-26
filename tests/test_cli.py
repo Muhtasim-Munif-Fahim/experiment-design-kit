@@ -555,3 +555,19 @@ def test_cuped_missing_csv_columns(tmp_path: Path) -> None:
         rc = main(["cuped", "--csv", str(bad)])
     assert rc == 2
     assert "outcome" in err.getvalue()
+
+
+def test_switchback_equal_allocation() -> None:
+    out = _run(["switchback", "--n", "24", "--block-length", "4", "--seed", "0"])
+    assert "block length: 4" in out
+    assert "blocks: 6" in out
+    assert "block counts: control=3, treatment=3" in out
+    assert "arm counts:" in out
+
+
+def test_switchback_ratio_and_partial_final_block() -> None:
+    out = _run(
+        ["switchback", "--n", "10", "--block-length", "4", "--ratio", "1,2", "--seed", "1"]
+    )
+    assert "blocks: 3" in out
+    assert "final block:" in out
