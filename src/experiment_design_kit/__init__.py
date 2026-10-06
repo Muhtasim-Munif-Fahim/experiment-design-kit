@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, stratified, blocked, cluster, and switchback randomization, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -76,6 +76,14 @@ from .sequential import (
     simulate_peeking_fpr,
     spending_increment,
 )
+from .srm import (
+    SRMResult,
+    SequentialSRMLook,
+    SequentialSRMResult,
+    sample_ratio_mismatch,
+    sequential_srm_test,
+    srm_from_assignment,
+)
 from .stats import (
     ProportionTestResult,
     SampleSizeResult,
@@ -146,6 +154,12 @@ __all__ = [
     "SequentialResult",
     "SequentialReport",
     "PeekingFPRResult",
+    "SRMResult",
+    "SequentialSRMLook",
+    "SequentialSRMResult",
+    "sample_ratio_mismatch",
+    "sequential_srm_test",
+    "srm_from_assignment",
     "cohen_h",
     "cohens_d",
     "pooled_t",
