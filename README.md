@@ -13,6 +13,8 @@ quantile bins with covariate balance diagnostics (standardized mean
 differences and chi-square), blocked (permuted-block) randomization
 with a fixed block size, cluster randomization that assigns whole
 clusters to arms, switchback / time-based block randomization,
+sample ratio mismatch (SRM) checks (fixed-horizon chi-square / G-test
+and an anytime-valid sequential Bayes factor),
 and a seedable A/B test outcome simulator
 with significance checking (chi-square and t-test).
 
@@ -81,6 +83,13 @@ experiment-design-kit switchback --n 48 --block-length 4 --seed 0
 
 # Same workflow on a CSV. Balance is computed on one row per cluster.
 experiment-design-kit cluster --csv path/to/units.csv --cluster school --categorical region
+
+# Sample ratio mismatch: did a planned 50/50 split actually receive 50/50?
+experiment-design-kit srm --counts 50421,49579
+
+# Same check for a 10% holdout, or sequentially (incremental counts per look).
+experiment-design-kit srm --counts 9000,1000 --ratio 90,10
+experiment-design-kit srm --looks "510,490;530,470;560,440"
 
 # Run the full demo workflow and write a Markdown report.
 experiment-design-kit report -o examples/output/demo_report.md
@@ -223,6 +232,45 @@ assigned = switchback_randomization(48, block_length=4, ratio=(1, 1), seed=0)
 print(assigned.block_counts)  # blocks per arm
 print(assigned.arm_counts)    # periods per arm
 print(assigned.assignment[:8])
+```
+
+## Sample ratio mismatch (SRM)
+
+Before reading any treatment effect, check that each arm received the
+traffic the design promised. A gap between the planned split and the
+observed counts (an SRM) usually means assignment, logging, bot
+filtering, or a redirect is losing units unevenly, which biases every
+metric downstream.
+
+* `sample_ratio_mismatch(counts, ratio=None, alpha=0.001)` — Pearson
+  chi-square (or `method="g-test"`) goodness-of-fit of the observed
+  counts to the planned ratio, for two or more arms. `alpha=0.001` is
+  the conventional SRM alarm level. Pearson residuals per arm show which
+  arm is drifting (`result.worst_arm`).
+* `srm_from_assignment(assignment, ratio=None)` — the same check on an
+  assignment object from this kit or a raw array of arm ids (e.g. the
+  arm column of the units present in your analysis table).
+* `sequential_srm_test(looks, ratio=None, alpha=0.05)` — anytime-valid
+  monitoring with a Dirichlet-multinomial Bayes factor (Lindon & Malek,
+  2020). The running `p = min(1, 1/BF)` may be checked after every batch
+  of traffic without inflating the false-alarm rate (Ville's inequality).
+  Looks are incremental counts unless `cumulative=True`.
+
+```python
+from experiment_design_kit import (
+    sample_ratio_mismatch,
+    sequential_srm_test,
+    srm_from_assignment,
+)
+
+check = sample_ratio_mismatch([50421, 49579])          # planned 50/50
+print(check.p_value, check.mismatch, check.worst_arm)  # 0.0078 False control
+
+holdout = sample_ratio_mismatch([9000, 1000], ratio=(90, 10))
+three = sample_ratio_mismatch([1000, 1000, 820], arm_labels=["A", "B", "C"])
+
+monitor = sequential_srm_test([[510, 490], [530, 470], [560, 440]])
+print(monitor.final_p_value, monitor.first_mismatch_look)
 ```
 
 ## Bayesian power (conversion A/B tests)

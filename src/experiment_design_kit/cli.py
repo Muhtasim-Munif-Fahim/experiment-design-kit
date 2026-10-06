@@ -29,6 +29,7 @@ from .sequential import (
     sequential_two_sample_mean_test,
     simulate_peeking_fpr,
 )
+from .srm import sample_ratio_mismatch, sequential_srm_test
 from .stats import cohen_h, two_proportion_sample_size, two_sample_t_sample_size
 from .simulation import run_continuous_ab_test, run_proportion_ab_test
 
@@ -90,6 +91,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Switchback randomization: assign consecutive time blocks to arms",
     )
     _add_switchback_args(switchback)
+
+    srm = sub.add_parser(
+        "srm",
+        help="Sample ratio mismatch check: observed arm counts vs the planned split",
+    )
+    _add_srm_args(srm)
 
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
@@ -1062,6 +1069,106 @@ def cmd_switchback(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_srm_args(p: argparse.ArgumentParser) -> None:
+    group = p.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--counts",
+        default=None,
+        help="Comma-separated observed units per arm, e.g. 50421,49579",
+    )
+    group.add_argument(
+        "--looks",
+        default=None,
+        help=(
+            "Sequential mode: semicolon-separated looks of comma-separated "
+            "incremental arm counts, e.g. '510,490;495,505;530,470'"
+        ),
+    )
+    p.add_argument(
+        "--ratio",
+        default=None,
+        help="Comma-separated planned allocation weights, one per arm (default: equal)",
+    )
+    p.add_argument(
+        "--alpha",
+        type=float,
+        default=None,
+        help="Alarm level (default: 0.001 fixed-horizon, 0.05 sequential)",
+    )
+    p.add_argument(
+        "--method",
+        choices=["chi-square", "g-test"],
+        default="chi-square",
+        help="Fixed-horizon test statistic (default: chi-square)",
+    )
+    p.add_argument(
+        "--cumulative",
+        action="store_true",
+        help="Sequential mode: --looks are running totals rather than increments",
+    )
+
+
+def _parse_counts(text: str, flag: str) -> list[int]:
+    values = _parse_floats(text, flag)
+    if any(v != int(v) for v in values):
+        raise ValueError(f"{flag}: counts must be whole numbers")
+    return [int(v) for v in values]
+
+
+def cmd_srm(args: argparse.Namespace) -> int:
+    try:
+        ratio = _parse_floats(args.ratio, "--ratio") if args.ratio else None
+        if args.counts is not None:
+            alpha = 0.001 if args.alpha is None else args.alpha
+            result = sample_ratio_mismatch(
+                _parse_counts(args.counts, "--counts"),
+                ratio,
+                alpha=alpha,
+                method=args.method,
+            )
+        else:
+            alpha = 0.05 if args.alpha is None else args.alpha
+            looks = [
+                _parse_counts(part, "--looks")
+                for part in args.looks.split(";")
+                if part.strip()
+            ]
+            seq = sequential_srm_test(
+                looks, ratio, alpha=alpha, cumulative=args.cumulative
+            )
+    except ValueError as exc:
+        print(f"srm: {exc}", file=sys.stderr)
+        return 2
+
+    if args.counts is not None:
+        print(f"method: {result.method}  n: {result.n:,}  dof: {result.dof}")
+        print(f"{'arm':>12}  {'observed':>10}  {'expected':>12}  {'share':>7}  {'planned':>7}  {'residual':>8}")
+        for label, obs, exp, got, want, res in zip(
+            result.arm_labels,
+            result.observed,
+            result.expected,
+            result.observed_share,
+            result.expected_share,
+            result.residuals,
+        ):
+            print(f"{label:>12}  {obs:>10,}  {exp:>12,.1f}  {got:>7.4f}  {want:>7.4f}  {res:>8.3f}")
+        print(f"statistic: {result.statistic:.4f}  p-value: {result.p_value:.4g}  alpha: {result.alpha:g}")
+        verdict = "SRM DETECTED" if result.mismatch else "no SRM"
+        print(f"verdict: {verdict} (largest drift: {result.worst_arm})")
+        return 0
+
+    print(f"sequential SRM (Dirichlet-multinomial Bayes factor)  alpha: {seq.alpha:g}")
+    print(f"{'look':>4}  {'n':>10}  {'log BF':>9}  {'always-valid p':>14}  {'srm':>3}")
+    for look in seq.looks:
+        flag = "yes" if look.mismatch else "no"
+        print(f"{look.look:>4}  {look.n:>10,}  {look.log_bayes_factor:>9.3f}  {look.p_value:>14.4g}  {flag:>3}")
+    if seq.mismatch:
+        print(f"verdict: SRM DETECTED at look {seq.first_mismatch_look}")
+    else:
+        print("verdict: no SRM")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     report = compose_demo_report(seed=args.seed)
     target = Path(args.output)
@@ -1083,6 +1190,7 @@ _COMMANDS = {
     "block": cmd_block,
     "cluster": cmd_cluster,
     "switchback": cmd_switchback,
+    "srm": cmd_srm,
     "report": cmd_report,
 }
 
