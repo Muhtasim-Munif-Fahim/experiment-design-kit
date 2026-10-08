@@ -273,6 +273,28 @@ monitor = sequential_srm_test([[510, 490], [530, 470], [560, 440]])
 print(monitor.final_p_value, monitor.first_mismatch_look)
 ```
 
+## Ratio metrics (delta method)
+
+Click-through rate, revenue per session and average order value are ratios
+of per-user sums. Users are randomized, but page views or sessions inside a
+user are correlated, so a naive per-event standard error is too small and
+inflates false positives. `delta_method_ratio_test` (Deng, Knoblich & Lu,
+2018) linearises `R = mean(Y) / mean(X)` over randomization units and
+returns the absolute difference with its delta-method SE, z, p-value and
+CI, plus the relative lift `R_t / R_c - 1` with its own SE and CI.
+`ratio_metric_variance(numerator, denominator)` gives the single-arm
+`(ratio, variance)`.
+
+```python
+from experiment_design_kit import delta_method_ratio_test
+
+# one entry per user: clicks and page views
+res = delta_method_ratio_test(clicks_c, views_c, clicks_t, views_t, alpha=0.05)
+print(res.ratio_control, res.ratio_treatment)
+print(res.absolute_diff, (res.ci_low, res.ci_high), res.p_value)
+print(res.relative_lift, (res.relative_ci_low, res.relative_ci_high))
+```
+
 ## Bayesian power (conversion A/B tests)
 
 Frequentist `power` / `sample-size` / `mde` answer "will a p-value cross

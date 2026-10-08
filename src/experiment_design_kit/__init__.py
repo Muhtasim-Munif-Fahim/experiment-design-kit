@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -43,6 +43,7 @@ from .randomization import (
     stratified_randomization,
     switchback_randomization,
 )
+from .ratio import RatioMetricResult, delta_method_ratio_test, ratio_metric_variance
 from .reporting import (
     ContinuousScenario,
     ProportionScenario,
@@ -154,6 +155,9 @@ __all__ = [
     "SequentialResult",
     "SequentialReport",
     "PeekingFPRResult",
+    "RatioMetricResult",
+    "delta_method_ratio_test",
+    "ratio_metric_variance",
     "SRMResult",
     "SequentialSRMLook",
     "SequentialSRMResult",
