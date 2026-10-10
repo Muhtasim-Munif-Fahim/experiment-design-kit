@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -42,6 +42,14 @@ from .randomization import (
     standardized_mean_difference,
     stratified_randomization,
     switchback_randomization,
+)
+from .multiple_testing import (
+    MultiArmSampleSizeResult,
+    MultipleTestingResult,
+    adjust_pvalues,
+    corrected_alpha,
+    family_wise_error_rate,
+    multi_arm_sample_size,
 )
 from .ratio import RatioMetricResult, delta_method_ratio_test, ratio_metric_variance
 from .reporting import (
@@ -103,6 +111,12 @@ __version__ = "0.1.0"
 __all__ = [
     "__version__",
     "main",
+    "MultiArmSampleSizeResult",
+    "MultipleTestingResult",
+    "adjust_pvalues",
+    "corrected_alpha",
+    "family_wise_error_rate",
+    "multi_arm_sample_size",
     "BayesianABTestResult",
     "BayesianPowerResult",
     "BayesianProportionResult",
