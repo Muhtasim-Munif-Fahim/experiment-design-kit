@@ -15,6 +15,8 @@ with a fixed block size, cluster randomization that assigns whole
 clusters to arms, switchback / time-based block randomization,
 sample ratio mismatch (SRM) checks (fixed-horizon chi-square / G-test
 and an anytime-valid sequential Bayes factor),
+multiple-testing corrections (Bonferroni, Šidák, Holm, Hochberg,
+Benjamini-Hochberg / Yekutieli) with A/B/n sample-size planning,
 and a seedable A/B test outcome simulator
 with significance checking (chi-square and t-test).
 
@@ -293,6 +295,41 @@ res = delta_method_ratio_test(clicks_c, views_c, clicks_t, views_t, alpha=0.05)
 print(res.ratio_control, res.ratio_treatment)
 print(res.absolute_diff, (res.ci_low, res.ci_high), res.p_value)
 print(res.relative_lift, (res.relative_ci_low, res.relative_ci_high))
+```
+
+## Multiple testing (many metrics, segments or variants)
+
+Running ten independent tests at `alpha = 0.05` gives about a 40% chance of
+at least one false positive (`family_wise_error_rate(0.05, 10)`).
+`adjust_pvalues(p_values, method, alpha)` returns adjusted p-values in the
+input order, with `rejected` meaning `adjusted <= alpha`:
+
+| method | controls | notes |
+| --- | --- | --- |
+| `bonferroni`, `sidak` | FWER | single-step |
+| `holm`, `holm-sidak` | FWER | step-down; never less powerful than the single-step versions |
+| `hochberg` | FWER | step-up; needs independence / positive dependence |
+| `bh` | FDR | Benjamini-Hochberg (independence / PRDS) |
+| `by` | FDR | Benjamini-Yekutieli (any dependence) |
+
+`multi_arm_sample_size(p_control, [p_t1, p_t2, ...], correction="bonferroni")`
+plans an A/B/n test that compares each variant with control. It splits
+`alpha` across the comparisons and gives every arm the largest
+per-comparison sample size.
+
+```python
+from experiment_design_kit import adjust_pvalues, multi_arm_sample_size
+
+res = adjust_pvalues([0.01, 0.04, 0.03, 0.005], method="holm")
+print(res.adjusted, res.rejected)        # (0.03, 0.06, 0.06, 0.02) (True, False, False, True)
+
+plan = multi_arm_sample_size(0.10, [0.12, 0.13], alpha=0.05, power=0.8)
+print(plan.alpha_per_comparison, plan.n_per_arm_required, plan.n_total_required)
+```
+
+```bash
+experiment-design-kit multiple-testing --pvalues 0.01,0.04,0.03,0.005 --method bh
+experiment-design-kit multiple-testing --treatments 0.12,0.13 --control 0.10 --correction sidak
 ```
 
 ## Bayesian power (conversion A/B tests)

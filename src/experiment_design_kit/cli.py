@@ -29,6 +29,7 @@ from .sequential import (
     sequential_two_sample_mean_test,
     simulate_peeking_fpr,
 )
+from .multiple_testing import METHODS as _MT_METHODS, adjust_pvalues, multi_arm_sample_size
 from .srm import sample_ratio_mismatch, sequential_srm_test
 from .stats import cohen_h, two_proportion_sample_size, two_sample_t_sample_size
 from .simulation import run_continuous_ab_test, run_proportion_ab_test
@@ -97,6 +98,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Sample ratio mismatch check: observed arm counts vs the planned split",
     )
     _add_srm_args(srm)
+
+    mt = sub.add_parser(
+        "multiple-testing",
+        help="Adjust a family of p-values (Holm, Hochberg, BH, ...) or plan an A/B/n test",
+    )
+    _add_multiple_testing_args(mt)
 
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
@@ -1108,6 +1115,66 @@ def _add_srm_args(p: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_multiple_testing_args(p: argparse.ArgumentParser) -> None:
+    group = p.add_mutually_exclusive_group(required=True)
+    group.add_argument(
+        "--pvalues",
+        default=None,
+        help="Comma-separated raw p-values to adjust, e.g. 0.01,0.04,0.03,0.2",
+    )
+    group.add_argument(
+        "--treatments",
+        default=None,
+        help="A/B/n planning: comma-separated treatment conversion rates, e.g. 0.11,0.12",
+    )
+    p.add_argument(
+        "--method",
+        default="holm",
+        help=f"Adjustment method: one of {', '.join(_MT_METHODS)} (default: holm)",
+    )
+    p.add_argument("--alpha", type=float, default=0.05, help="FWER / FDR level (default: 0.05)")
+    p.add_argument("--control", type=float, default=0.10, help="A/B/n planning: control rate (default: 0.10)")
+    p.add_argument("--power", type=float, default=0.8, help="A/B/n planning: target power (default: 0.8)")
+    p.add_argument(
+        "--correction",
+        choices=["bonferroni", "sidak", "none"],
+        default="bonferroni",
+        help="A/B/n planning: per-comparison alpha split (default: bonferroni)",
+    )
+
+
+def cmd_multiple_testing(args: argparse.Namespace) -> int:
+    try:
+        if args.pvalues is not None:
+            res = adjust_pvalues(_parse_floats(args.pvalues, "--pvalues"), args.method, args.alpha)
+        else:
+            plan = multi_arm_sample_size(
+                args.control,
+                _parse_floats(args.treatments, "--treatments"),
+                alpha=args.alpha,
+                power=args.power,
+                correction=args.correction,
+            )
+    except ValueError as exc:
+        print(f"multiple-testing: {exc}", file=sys.stderr)
+        return 2
+    if args.pvalues is not None:
+        print(f"method: {res.method} ({res.controls} control)  alpha: {res.alpha:g}  tests: {res.n_tests}")
+        print(f"{'#':>3}  {'raw p':>10}  {'adjusted p':>10}  {'reject':>6}")
+        for i, (raw, adj, rej) in enumerate(zip(res.p_values, res.adjusted, res.rejected), 1):
+            print(f"{i:>3}  {raw:>10.4g}  {adj:>10.4g}  {'yes' if rej else 'no':>6}")
+        print(f"rejected: {res.n_rejected} of {res.n_tests}")
+        return 0
+    print(
+        f"A/B/n plan: control {plan.p_control:g} vs {len(plan.p_treatments)} treatment(s)  "
+        f"correction: {plan.correction}  per-comparison alpha: {plan.alpha_per_comparison:.4g}"
+    )
+    for pt, n in zip(plan.p_treatments, plan.n_per_arm_by_comparison):
+        print(f"  treatment {pt:g}: n per arm {n:,}")
+    print(f"n per arm: {plan.n_per_arm_required:,}  total ({plan.n_arms} arms): {plan.n_total_required:,}")
+    return 0
+
+
 def _parse_counts(text: str, flag: str) -> list[int]:
     values = _parse_floats(text, flag)
     if any(v != int(v) for v in values):
@@ -1191,6 +1258,7 @@ _COMMANDS = {
     "cluster": cmd_cluster,
     "switchback": cmd_switchback,
     "srm": cmd_srm,
+    "multiple-testing": cmd_multiple_testing,
     "report": cmd_report,
 }
 
