@@ -10,6 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from .bayesian import bayesian_power_proportion, required_bayesian_sample_size
+from .cluster_power import cluster_mde, cluster_power, cluster_sample_size, design_effect
 from .cuped import cuped_adjust, simulate_cuped_data
 from .mde import minimum_detectable_effect, minimum_detectable_effect_proportion, minimum_detectable_effect_raw
 from .power import power_one_sample, power_proportion, power_two_sample
@@ -86,6 +87,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Cluster randomization: assign whole clusters to arms",
     )
     _add_cluster_args(cluster)
+
+    cpow = sub.add_parser(
+        "cluster-power",
+        help="ICC-aware sample size / power / MDE for cluster-randomized trials",
+    )
+    _add_cluster_power_args(cpow)
 
     switchback = sub.add_parser(
         "switchback",
@@ -316,6 +323,26 @@ def _add_randomize_args(p: argparse.ArgumentParser) -> None:
         help="Levels of the synthetic categorical covariate (default: 3)",
     )
     p.add_argument("--seed", type=int, default=0, help="Random seed (default: 0)")
+
+
+def _add_cluster_power_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--mode", choices=["sample-size", "power", "mde"], default="sample-size",
+        help="What to solve for (default: sample-size)",
+    )
+    p.add_argument("--cluster-size", type=float, required=True, help="Mean individuals per cluster (m)")
+    p.add_argument("--icc", type=float, required=True, help="Intracluster correlation coefficient")
+    p.add_argument("--cv", type=float, default=0.0, help="Coefficient of variation of cluster sizes (default: 0)")
+    p.add_argument("--d", type=float, default=None, help="Standardized effect (Cohen's d) for means")
+    p.add_argument("--p1", type=float, default=None, help="Control proportion (binary outcome)")
+    p.add_argument("--p2", type=float, default=None, help="Treatment proportion (binary outcome)")
+    p.add_argument("--clusters", type=int, default=None, help="Clusters per arm (power / mde modes)")
+    p.add_argument("--alpha", type=float, default=0.05, help="Significance level (default: 0.05)")
+    p.add_argument("--power", type=float, default=0.8, help="Target power (default: 0.8)")
+    p.add_argument(
+        "--method", choices=["t", "normal"], default="t",
+        help="t: noncentral t with 2k-2 df (default); normal: Donner & Klar closed form",
+    )
 
 
 def _add_cluster_args(p: argparse.ArgumentParser) -> None:
@@ -1236,6 +1263,54 @@ def cmd_srm(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_cluster_power(args: argparse.Namespace) -> int:
+    try:
+        if args.p1 is not None or args.p2 is not None:
+            effect = dict(kind="proportions", p1=args.p1, p2=args.p2)
+        else:
+            effect = dict(kind="means", effect_size=args.d)
+        de = design_effect(args.cluster_size, args.icc, args.cv)
+        if args.mode == "sample-size":
+            if effect["kind"] == "means" and args.d is None:
+                raise ValueError("--d or --p1/--p2 is required")
+            res = cluster_sample_size(
+                args.cluster_size, args.icc, alpha=args.alpha, power=args.power,
+                cv=args.cv, method=args.method, **effect,
+            )
+        else:
+            if args.clusters is None:
+                raise ValueError("--clusters is required for power / mde modes")
+            if args.mode == "power":
+                if effect["kind"] == "means" and args.d is None:
+                    raise ValueError("--d or --p1/--p2 is required")
+                pw = cluster_power(
+                    args.clusters, args.cluster_size, args.icc, alpha=args.alpha,
+                    cv=args.cv, method=args.method, **effect,
+                )
+            else:
+                mde_d = cluster_mde(
+                    args.clusters, args.cluster_size, args.icc, alpha=args.alpha,
+                    power=args.power, cv=args.cv, method=args.method,
+                )
+    except ValueError as exc:
+        print(f"cluster-power: {exc}", file=sys.stderr)
+        return 2
+    print(
+        f"cluster size: {args.cluster_size:g}  icc: {args.icc:g}  cv: {args.cv:g}  "
+        f"design effect: {de:.4f}  method: {args.method}"
+    )
+    if args.mode == "sample-size":
+        print(f"unclustered n per arm: {res.n_individual_per_arm:,.1f}")
+        print(f"clusters per arm: {res.clusters_per_arm:,}  individuals per arm: {res.individuals_per_arm:,}")
+        print(f"total clusters: {res.total_clusters:,}  total individuals: {res.total_individuals:,}")
+        print(f"achieved power: {res.achieved_power:.4f}")
+    elif args.mode == "power":
+        print(f"clusters per arm: {args.clusters}  power: {pw:.4f}")
+    else:
+        print(f"clusters per arm: {args.clusters}  MDE (Cohen's d): {mde_d:.4f}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     report = compose_demo_report(seed=args.seed)
     target = Path(args.output)
@@ -1256,6 +1331,7 @@ _COMMANDS = {
     "randomize": cmd_randomize,
     "block": cmd_block,
     "cluster": cmd_cluster,
+    "cluster-power": cmd_cluster_power,
     "switchback": cmd_switchback,
     "srm": cmd_srm,
     "multiple-testing": cmd_multiple_testing,
