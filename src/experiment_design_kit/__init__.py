@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -11,6 +11,16 @@ from .bayesian import (
     required_bayesian_sample_size,
 )
 from .cli import main
+from .cluster_power import (
+    ClusterSampleSizeResult,
+    ICCEstimate,
+    cluster_mde,
+    cluster_power,
+    cluster_sample_size,
+    design_effect,
+    effective_sample_size,
+    estimate_icc,
+)
 from .cuped import CUPEDResult, adjust_metric, cuped_adjust, estimate_theta, simulate_cuped_data
 from .mde import (
     MDEResult,
@@ -109,6 +119,14 @@ from .stats import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "ClusterSampleSizeResult",
+    "ICCEstimate",
+    "cluster_mde",
+    "cluster_power",
+    "cluster_sample_size",
+    "design_effect",
+    "effective_sample_size",
+    "estimate_icc",
     "__version__",
     "main",
     "MultiArmSampleSizeResult",

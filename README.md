@@ -12,7 +12,9 @@ via simulation), stratified randomization on categorical covariates or
 quantile bins with covariate balance diagnostics (standardized mean
 differences and chi-square), blocked (permuted-block) randomization
 with a fixed block size, cluster randomization that assigns whole
-clusters to arms, switchback / time-based block randomization,
+clusters to arms, ICC-aware cluster-randomized power and sample size
+(design effect, Donner & Klar clusters per arm, ANOVA ICC estimation),
+switchback / time-based block randomization,
 sample ratio mismatch (SRM) checks (fixed-horizon chi-square / G-test
 and an anytime-valid sequential Bayes factor),
 multiple-testing corrections (Bonferroni, Šidák, Holm, Hochberg,
@@ -562,3 +564,33 @@ unit-level `score` (balanced on the cluster mean). A CSV uses
 `--cluster` for the id column (default `cluster`) and treats the other
 columns, except `id`, `unit_id`, and `user_id`, as covariates.
 
+
+## Cluster-randomized power and sample size (ICC-aware)
+
+When whole clusters are randomized, correlated outcomes inside a cluster
+inflate the variance by the design effect
+`DE = 1 + ((cv² + 1)·m − 1)·ICC` (Donner & Klar 2000; Eldridge et al. 2006 for
+variable cluster sizes). `cluster_sample_size` inflates the individually
+randomized n by `DE` and converts it to clusters per arm. `method="normal"` is
+the closed-form Donner & Klar count; `method="t"` (default) bumps it until the
+noncentral-t power with `2k − 2` cluster-level df reaches the target, which
+matters when only a few clusters are affordable.
+
+```python
+from experiment_design_kit import cluster_sample_size, cluster_power, cluster_mde, estimate_icc
+
+plan = cluster_sample_size(cluster_size=20, icc=0.05, effect_size=0.3)
+print(plan.design_effect, plan.clusters_per_arm, plan.individuals_per_arm, plan.achieved_power)
+
+binary = cluster_sample_size(50, 0.01, p1=0.10, p2=0.15, kind="proportions")
+print(cluster_power(12, 20, 0.05, effect_size=0.4), cluster_mde(12, 20, 0.05))
+
+est = estimate_icc(values, cluster_ids)   # one-way ANOVA ICC + Searle F-based CI
+print(est.icc, est.ci_lower, est.ci_upper)
+```
+
+```bash
+experiment-design-kit cluster-power --cluster-size 20 --icc 0.05 --d 0.3
+experiment-design-kit cluster-power --mode power --cluster-size 20 --icc 0.05 --p1 0.1 --p2 0.15 --clusters 30
+experiment-design-kit cluster-power --mode mde --cluster-size 20 --icc 0.05 --clusters 10
+```
