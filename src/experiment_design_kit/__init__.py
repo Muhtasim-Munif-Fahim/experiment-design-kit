@@ -10,6 +10,7 @@ from .bayesian import (
     bayesian_proportion_test,
     required_bayesian_sample_size,
 )
+from .adaptive import ThompsonAllocationResult, ThompsonAllocator, simulate_thompson_ab
 from .cli import main
 from .cluster_power import (
     ClusterSampleSizeResult,
@@ -119,6 +120,9 @@ from .stats import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "ThompsonAllocationResult",
+    "ThompsonAllocator",
+    "simulate_thompson_ab",
     "ClusterSampleSizeResult",
     "ICCEstimate",
     "cluster_mde",
