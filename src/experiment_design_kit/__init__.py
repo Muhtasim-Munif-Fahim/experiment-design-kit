@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, non-inferiority and TOST equivalence tests and planning, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -23,6 +23,19 @@ from .cluster_power import (
     estimate_icc,
 )
 from .cuped import CUPEDResult, adjust_metric, cuped_adjust, estimate_theta, simulate_cuped_data
+from .equivalence import (
+    EquivalenceSampleSizeResult,
+    EquivalenceTestResult,
+    NonInferiorityResult,
+    equivalence_power,
+    equivalence_sample_size,
+    noninferiority_means,
+    noninferiority_power,
+    noninferiority_proportions,
+    noninferiority_sample_size,
+    tost_means,
+    tost_proportions,
+)
 from .mde import (
     MDEResult,
     ProportionMDE,
@@ -120,6 +133,17 @@ from .stats import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "EquivalenceSampleSizeResult",
+    "EquivalenceTestResult",
+    "NonInferiorityResult",
+    "equivalence_power",
+    "equivalence_sample_size",
+    "noninferiority_means",
+    "noninferiority_power",
+    "noninferiority_proportions",
+    "noninferiority_sample_size",
+    "tost_means",
+    "tost_proportions",
     "ThompsonAllocationResult",
     "ThompsonAllocator",
     "simulate_thompson_ab",
