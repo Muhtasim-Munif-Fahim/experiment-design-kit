@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 import sys
 from pathlib import Path
 
@@ -12,6 +13,14 @@ import numpy as np
 from .bayesian import bayesian_power_proportion, required_bayesian_sample_size
 from .cluster_power import cluster_mde, cluster_power, cluster_sample_size, design_effect
 from .cuped import cuped_adjust, simulate_cuped_data
+from .equivalence import (
+    equivalence_power,
+    equivalence_sample_size,
+    noninferiority_power,
+    noninferiority_proportions,
+    noninferiority_sample_size,
+    tost_proportions,
+)
 from .mde import minimum_detectable_effect, minimum_detectable_effect_proportion, minimum_detectable_effect_raw
 from .power import power_one_sample, power_proportion, power_two_sample
 from .randomization import (
@@ -111,6 +120,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Adjust a family of p-values (Holm, Hochberg, BH, ...) or plan an A/B/n test",
     )
     _add_multiple_testing_args(mt)
+
+    eq = sub.add_parser(
+        "equivalence",
+        help="Non-inferiority / TOST equivalence: sample size, power, or a test on counts",
+    )
+    _add_equivalence_args(eq)
 
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
@@ -1311,6 +1326,95 @@ def cmd_cluster_power(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_equivalence_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument(
+        "--design", choices=("noninferiority", "equivalence"), default="noninferiority",
+        help="noninferiority (one-sided) or equivalence (TOST). Default: noninferiority",
+    )
+    p.add_argument(
+        "--mode", choices=("sample-size", "power", "test"), default="sample-size",
+        help="sample-size, power at --n, or test observed --counts. Default: sample-size",
+    )
+    p.add_argument("--margin", type=float, required=True, help="Positive margin (absolute units)")
+    p.add_argument(
+        "--upper-margin", type=float, default=None,
+        help="Asymmetric TOST: --margin is the (negative) lower and this the upper bound",
+    )
+    p.add_argument("--sd", type=float, default=None, help="Outcome SD for a continuous metric (default 1)")
+    p.add_argument("--p-control", type=float, default=None, help="Control conversion rate (proportions)")
+    p.add_argument("--true-diff", type=float, default=0.0, help="Assumed true treatment - control (default 0)")
+    p.add_argument("--alpha", type=float, default=None,
+                   help="Level (default 0.025 for noninferiority, 0.05 per side for TOST)")
+    p.add_argument("--power", type=float, default=0.8, help="Target power (default 0.8)")
+    p.add_argument("--n", type=int, default=None, help="Control-arm size for --mode power")
+    p.add_argument("--ratio", type=float, default=1.0, help="n_treatment / n_control (default 1)")
+    p.add_argument(
+        "--counts", default=None,
+        help="For --mode test: successes_control,n_control,successes_treatment,n_treatment",
+    )
+    p.add_argument(
+        "--lower-is-better", action="store_true",
+        help="Non-inferiority for metrics where lower is better (latency, cost)",
+    )
+
+
+def cmd_equivalence(args: argparse.Namespace) -> int:
+    ni = args.design == "noninferiority"
+    alpha = args.alpha if args.alpha is not None else (0.025 if ni else 0.05)
+    try:
+        if args.mode == "test":
+            if not args.counts:
+                raise ValueError("--counts is required for --mode test")
+            parts = _parse_ints(args.counts, "--counts")
+            if len(parts) != 4:
+                raise ValueError("--counts needs exactly 4 integers")
+            if ni:
+                res = noninferiority_proportions(
+                    *parts, margin=args.margin, alpha=alpha,
+                    higher_is_better=not args.lower_is_better,
+                )
+            else:
+                res = tost_proportions(*parts, margin=args.margin, alpha=alpha,
+                                       upper_margin=args.upper_margin)
+        elif args.mode == "power":
+            if args.n is None:
+                raise ValueError("--n is required for --mode power")
+            common = dict(sd=args.sd, p_control=args.p_control, true_diff=args.true_diff,
+                          alpha=alpha, ratio=args.ratio)
+            if ni:
+                value = noninferiority_power(args.margin, args.n, **common)
+            else:
+                value = equivalence_power(args.margin, args.n, upper_margin=args.upper_margin, **common)
+        else:
+            common = dict(sd=args.sd, p_control=args.p_control, true_diff=args.true_diff,
+                          alpha=alpha, power=args.power, ratio=args.ratio)
+            if ni:
+                plan = noninferiority_sample_size(args.margin, **common)
+            else:
+                plan = equivalence_sample_size(args.margin, upper_margin=args.upper_margin, **common)
+    except ValueError as exc:
+        print(f"equivalence: {exc}", file=sys.stderr)
+        return 2
+    print(f"design: {args.design}  alpha: {alpha:g}  margin: {args.margin:g}"
+          + (f"  upper margin: {args.upper_margin:g}" if args.upper_margin is not None else ""))
+    if args.mode == "test":
+        print(f"difference (treatment - control): {res.difference:+.5f}  se: {res.se:.5f}")
+        if ni:
+            side = "upper" if args.lower_is_better else "lower"
+            print(f"one-sided {1 - alpha:.1%} {side} bound: {res.confidence_bound:+.5f}  p-value: {res.p_value:.4g}")
+            print("verdict: " + ("NON-INFERIOR" if res.noninferior else "non-inferiority NOT shown"))
+        else:
+            print(f"{1 - 2 * alpha:.0%} CI: [{res.ci_low:+.5f}, {res.ci_high:+.5f}]  "
+                  f"p_lower: {res.p_lower:.4g}  p_upper: {res.p_upper:.4g}")
+            print("verdict: " + ("EQUIVALENT" if res.equivalent else "equivalence NOT shown"))
+    elif args.mode == "power":
+        print(f"n control: {args.n}  n treatment: {math.ceil(args.n * args.ratio)}  power: {value:.4f}")
+    else:
+        print(f"n control: {plan.n_control:,}  n treatment: {plan.n_treatment:,}  total: {plan.n_total:,}")
+        print(f"achieved power: {plan.achieved_power:.4f}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     report = compose_demo_report(seed=args.seed)
     target = Path(args.output)
@@ -1335,6 +1439,7 @@ _COMMANDS = {
     "switchback": cmd_switchback,
     "srm": cmd_srm,
     "multiple-testing": cmd_multiple_testing,
+    "equivalence": cmd_equivalence,
     "report": cmd_report,
 }
 

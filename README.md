@@ -17,6 +17,8 @@ clusters to arms, ICC-aware cluster-randomized power and sample size
 switchback / time-based block randomization,
 sample ratio mismatch (SRM) checks (fixed-horizon chi-square / G-test
 and an anytime-valid sequential Bayes factor),
+non-inferiority and TOST equivalence tests with sample-size and power
+planning (means and proportions),
 multiple-testing corrections (Bonferroni, Šidák, Holm, Hochberg,
 Benjamini-Hochberg / Yekutieli) with A/B/n sample-size planning,
 and a seedable A/B test outcome simulator
@@ -94,6 +96,12 @@ experiment-design-kit srm --counts 50421,49579
 # Same check for a 10% holdout, or sequentially (incremental counts per look).
 experiment-design-kit srm --counts 9000,1000 --ratio 90,10
 experiment-design-kit srm --looks "510,490;530,470;560,440"
+
+# Non-inferiority sample size: a 0.5-unit margin on a metric with SD 2.
+experiment-design-kit equivalence --margin 0.5 --sd 2
+
+# TOST equivalence on observed conversions with a ±2 pp margin.
+experiment-design-kit equivalence --design equivalence --mode test --margin 0.02 --counts 3000,10000,3050,10000
 
 # Run the full demo workflow and write a Markdown report.
 experiment-design-kit report -o examples/output/demo_report.md
@@ -297,6 +305,42 @@ res = delta_method_ratio_test(clicks_c, views_c, clicks_t, views_t, alpha=0.05)
 print(res.ratio_control, res.ratio_treatment)
 print(res.absolute_diff, (res.ci_low, res.ci_high), res.p_value)
 print(res.relative_lift, (res.relative_ci_low, res.relative_ci_high))
+```
+
+## Non-inferiority and equivalence (TOST)
+
+A non-significant superiority test is not evidence that two variants are
+"the same". When the goal is to show that a cheaper model, a refactor or a
+simplified flow is *not worse*, flip the burden of proof:
+
+* **Non-inferiority** tests `H0: delta <= -margin` (one-sided, default
+  `alpha = 0.025`), with `delta = treatment - control`. Use
+  `higher_is_better=False` for latency / cost metrics.
+* **Equivalence** uses Schuirmann's two one-sided tests: both
+  `H0: delta <= lower` and `H0: delta >= upper` must be rejected at `alpha`,
+  i.e. the `1 - 2*alpha` CI must sit inside the margins (symmetric
+  `±margin`, or asymmetric via `upper_margin`).
+
+Means use Welch's t; proportions use the unpooled Wald z. Planning uses the
+normal approximation: closed form for non-inferiority, and the smallest `n`
+whose TOST power `Phi((U - delta)/se - z) + Phi((delta - L)/se - z) - 1`
+reaches the target for equivalence (`ratio = n_treatment / n_control`).
+
+```python
+from experiment_design_kit import (
+    equivalence_sample_size, noninferiority_sample_size,
+    noninferiority_means, tost_proportions,
+)
+
+noninferiority_sample_size(0.5, sd=2.0).n_control          # 252 per arm
+equivalence_sample_size(0.05, p_control=0.30).n_control    # 1439 per arm
+
+res = tost_proportions(3000, 10000, 3050, 10000, margin=0.02)
+print(res.equivalent, (res.ci_low, res.ci_high), res.p_value)
+
+ni = noninferiority_means(control_latency, new_latency, margin=5.0,
+                          higher_is_better=False)
+print(ni.noninferior, ni.confidence_bound)
 ```
 
 ## Multiple testing (many metrics, segments or variants)
