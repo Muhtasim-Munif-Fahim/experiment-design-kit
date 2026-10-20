@@ -21,6 +21,7 @@ from .equivalence import (
     noninferiority_sample_size,
     tost_proportions,
 )
+from .factorial import factorial_effects, fold_over, fractional_factorial, full_factorial
 from .mde import minimum_detectable_effect, minimum_detectable_effect_proportion, minimum_detectable_effect_raw
 from .power import power_one_sample, power_proportion, power_two_sample
 from .randomization import (
@@ -126,6 +127,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Non-inferiority / TOST equivalence: sample size, power, or a test on counts",
     )
     _add_equivalence_args(eq)
+
+    fac = sub.add_parser(
+        "factorial",
+        help="Two-level full / fractional factorial design (aliases, resolution) and effect analysis",
+    )
+    _add_factorial_args(fac)
 
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
@@ -1415,6 +1422,69 @@ def cmd_equivalence(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_factorial_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--factors", type=int, required=True, help="Number of two-level factors k")
+    p.add_argument(
+        "--generators", default=None,
+        help="Comma-separated generators for a fraction, e.g. 'D=AB,E=-AC'",
+    )
+    p.add_argument(
+        "--fraction", type=int, default=0,
+        help="p for a 2^(k-p) fraction using minimum-aberration generators (default 0 = full)",
+    )
+    p.add_argument("--fold-over", action="store_true", help="Append the mirror-image fold-over runs")
+    p.add_argument(
+        "--responses", default=None,
+        help="Comma-separated responses in design (standard) order to estimate effects",
+    )
+    p.add_argument("--alpha", type=float, default=0.05, help="Level for effect significance (default 0.05)")
+
+
+def cmd_factorial(args: argparse.Namespace) -> int:
+    try:
+        if args.generators:
+            gens = [g.strip() for g in args.generators.split(",") if g.strip()]
+            design = fractional_factorial(args.factors, gens)
+        elif args.fraction:
+            design = fractional_factorial(args.factors, p=args.fraction)
+        else:
+            design = full_factorial(args.factors)
+        if args.fold_over:
+            design = fold_over(design)
+        result = None
+        if args.responses:
+            result = factorial_effects(design, _parse_floats(args.responses, "--responses"),
+                                       alpha=args.alpha)
+    except ValueError as exc:
+        print(f"factorial: {exc}", file=sys.stderr)
+        return 2
+    label = f"2^{design.k}" if not design.generators else f"2^({design.k}-{design.p})"
+    print(f"design: {label}  runs: {design.n_runs}  resolution: {design.resolution_roman}"
+          + ("  (folded over)" if args.fold_over else ""))
+    if design.generators:
+        print("generators: " + ", ".join(design.generators))
+        print("defining relation: I = " + " = ".join(design.defining_words))
+        print("word-length pattern (A3, A4, ...): " + str(design.word_length_pattern))
+    print("run  " + " ".join(f"{f:>2}" for f in design.factors))
+    for i, row in enumerate(design.matrix, start=1):
+        print(f"{i:>3}  " + " ".join(" +" if v > 0 else " -" for v in row))
+    if design.aliases:
+        print("aliases (main effects and 2FIs):")
+        for effect, aliases in design.aliases.items():
+            print(f"  {effect} = " + " = ".join(aliases))
+    if result is not None:
+        print(f"effects ({result.method}):")
+        for name, value in result.ranked():
+            flag = " *" if name in result.significant else ""
+            print(f"  {name:>6}: {value:+.4f}  p={result.p_values[name]:.4g}{flag}")
+        if result.method == "lenth":
+            print(f"Lenth PSE: {result.std_error:.4f}  ME: {result.margin_of_error:.4f}  "
+                  f"SME: {result.simultaneous_margin:.4f}")
+        else:
+            print(f"effect se: {result.std_error:.4f}  residual df: {result.df:g}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     report = compose_demo_report(seed=args.seed)
     target = Path(args.output)
@@ -1440,6 +1510,7 @@ _COMMANDS = {
     "srm": cmd_srm,
     "multiple-testing": cmd_multiple_testing,
     "equivalence": cmd_equivalence,
+    "factorial": cmd_factorial,
     "report": cmd_report,
 }
 

@@ -638,3 +638,37 @@ experiment-design-kit cluster-power --cluster-size 20 --icc 0.05 --d 0.3
 experiment-design-kit cluster-power --mode power --cluster-size 20 --icc 0.05 --p1 0.1 --p2 0.15 --clusters 30
 experiment-design-kit cluster-power --mode mde --cluster-size 20 --icc 0.05 --clusters 10
 ```
+
+## Two-level factorial designs (full, fractional, fold-over, Lenth analysis)
+
+When several factors may matter and interact, a `2^k` factorial tests them all in one experiment. A `2^(k-p)` fraction runs `2^(k-p)` of the combinations, at the price of aliasing some effects with each other.
+
+```python
+from experiment_design_kit import factorial_effects, fold_over, fractional_factorial, full_factorial
+
+design = fractional_factorial(6, p=2)       # minimum-aberration E=ABC, F=BCD
+design.resolution, design.defining_words     # 4, ('ABCE', 'ADEF', 'BCDF')
+design.aliases["AB"]                         # ('CE', 'ACDF', 'BDEF')
+custom = fractional_factorial(5, ["D=AB", "E=-AC"])
+folded = fold_over(fractional_factorial(7, p=4))   # resolution III -> IV, 16 runs
+rows = design.to_levels({"A": ("old", "new"), ...})  # coded runs -> real settings
+order = design.randomized_order(seed=1)
+
+result = factorial_effects(full_factorial(4), y)   # y in standard order (or runs x replicates)
+result.ranked()[:3], result.significant
+result.std_error, result.margin_of_error, result.simultaneous_margin   # Lenth PSE / ME / SME
+```
+
+- Designs use coded `-1/+1` columns in standard (Yates) order. The factor letters are `A, B, C, ...`, skipping `I`.
+- Generators are written like `D=ABC` or `E=-AC`. The design reports the full defining relation, the word-length pattern `(A3, A4, ...)`, the resolution, and the aliases of every main effect and two-factor interaction. With `p=` you get the standard minimum-aberration table for k ≤ 8.
+- `factorial_effects` estimates one effect per alias class, where `effect = mean(y|+) - mean(y|-)`.
+  - **Unreplicated designs:** it uses Lenth's (1989) pseudo standard error, and flags effects above the margin of error `ME = t(1-α/2, m/3) · PSE`. On Montgomery's filtration example (2^4) it reproduces PSE = 2.625 and flags A, C, D, AC and AD.
+  - **Replicated designs, or with `max_order=`:** it uses t tests on the residual mean square.
+  - `half_normal_scores()` gives the points for a Daniel plot.
+- `fold_over(design)` appends the mirror-image runs, which breaks every main-effect/2FI alias. `fold_over(design, factor="A")` de-aliases A and all of its interactions.
+
+```bash
+experiment-design-kit factorial --factors 5 --fraction 1
+experiment-design-kit factorial --factors 7 --generators D=AB,E=AC,F=BC,G=ABC --fold-over
+experiment-design-kit factorial --factors 4 --responses 45,71,48,65,68,60,80,65,43,100,45,104,75,86,70,96
+```
