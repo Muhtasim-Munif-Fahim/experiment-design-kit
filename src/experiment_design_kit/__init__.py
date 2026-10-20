@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, non-inferiority and TOST equivalence tests and planning, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, non-inferiority and TOST equivalence tests and planning, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, two-level full/fractional factorial designs with alias structure and Lenth effect analysis, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -12,6 +12,18 @@ from .bayesian import (
 )
 from .adaptive import ThompsonAllocationResult, ThompsonAllocator, simulate_thompson_ab
 from .cli import main
+from .factorial import (
+    MINIMUM_ABERRATION_GENERATORS,
+    FactorialDesign,
+    FactorialEffects,
+    alias_structure,
+    defining_relation,
+    factorial_effects,
+    fold_over,
+    fractional_factorial,
+    full_factorial,
+    lenth_pse,
+)
 from .cluster_power import (
     ClusterSampleSizeResult,
     ICCEstimate,
@@ -133,6 +145,16 @@ from .stats import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "MINIMUM_ABERRATION_GENERATORS",
+    "FactorialDesign",
+    "FactorialEffects",
+    "alias_structure",
+    "defining_relation",
+    "factorial_effects",
+    "fold_over",
+    "fractional_factorial",
+    "full_factorial",
+    "lenth_pse",
     "EquivalenceSampleSizeResult",
     "EquivalenceTestResult",
     "NonInferiorityResult",
