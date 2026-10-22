@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, non-inferiority and TOST equivalence tests and planning, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, two-level full/fractional factorial designs with alias structure and Lenth effect analysis, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, non-inferiority and TOST equivalence tests and planning, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, two-level full/fractional factorial designs with alias structure and Lenth effect analysis, Plackett-Burman screening and central composite / Box-Behnken response-surface designs with quadratic canonical analysis, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -23,6 +23,18 @@ from .factorial import (
     fractional_factorial,
     full_factorial,
     lenth_pse,
+)
+from .response_surface import (
+    PLACKETT_BURMAN_GENERATORS,
+    QuadraticFit,
+    ResponseSurfaceDesign,
+    box_behnken,
+    central_composite,
+    fit_quadratic,
+    plackett_burman,
+    quadratic_terms,
+    scaled_prediction_variance,
+    screening_effects,
 )
 from .cluster_power import (
     ClusterSampleSizeResult,
@@ -145,6 +157,16 @@ from .stats import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "PLACKETT_BURMAN_GENERATORS",
+    "QuadraticFit",
+    "ResponseSurfaceDesign",
+    "box_behnken",
+    "central_composite",
+    "fit_quadratic",
+    "plackett_burman",
+    "quadratic_terms",
+    "scaled_prediction_variance",
+    "screening_effects",
     "MINIMUM_ABERRATION_GENERATORS",
     "FactorialDesign",
     "FactorialEffects",
