@@ -134,6 +134,32 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_factorial_args(fac)
 
+    pb = sub.add_parser(
+        "screening",
+        help="Plackett-Burman screening design (N runs, up to N-1 factors) and main-effect analysis",
+    )
+    pb.add_argument("--factors", type=int, required=True, help="Number of two-level factors k")
+    pb.add_argument("--runs", type=int, default=None,
+                    help="Run size N (multiple of 4 > k; default: smallest such N)")
+    pb.add_argument("--responses", default=None,
+                    help="Comma-separated responses in design order to estimate main effects")
+    pb.add_argument("--alpha", type=float, default=0.05, help="Level for effect significance (default 0.05)")
+
+    rsm = sub.add_parser(
+        "response-surface",
+        help="Central composite / Box-Behnken design and quadratic fit with canonical analysis",
+    )
+    rsm.add_argument("--factors", type=int, required=True, help="Number of factors k")
+    rsm.add_argument("--design", choices=["ccd", "bbd"], default="ccd", help="Design family (default ccd)")
+    rsm.add_argument("--alpha", default="rotatable",
+                     help="CCD axial distance: rotatable, orthogonal, face, or a number (default rotatable)")
+    rsm.add_argument("--face", choices=["circumscribed", "inscribed", "faced"], default="circumscribed",
+                     help="CCD variant (default circumscribed)")
+    rsm.add_argument("--center", type=int, default=None,
+                     help="Centre runs (CCD: split between cube/axial; BBD: total). Default CCD 8, BBD 3")
+    rsm.add_argument("--responses", default=None,
+                     help="Comma-separated responses in design order to fit the quadratic model")
+
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
     rep.add_argument(
@@ -1485,6 +1511,73 @@ def cmd_factorial(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_screening(args: argparse.Namespace) -> int:
+    from .response_surface import plackett_burman, screening_effects
+
+    try:
+        design = plackett_burman(args.factors, args.runs)
+        result = None
+        if args.responses:
+            result = screening_effects(design, _parse_floats(args.responses, "--responses"),
+                                       alpha=args.alpha)
+    except ValueError as exc:
+        print(f"screening: {exc}", file=sys.stderr)
+        return 2
+    print(f"design: Plackett-Burman  runs: {design.n_runs}  factors: {design.k}")
+    print("run  " + " ".join(f"{f:>2}" for f in design.factors))
+    for i, row in enumerate(design.matrix, start=1):
+        print(f"{i:>3}  " + " ".join(" +" if v > 0 else " -" for v in row))
+    if result is not None:
+        print(f"main effects ({result.method}):")
+        for name, value in result.ranked():
+            flag = " *" if name in result.significant else ""
+            print(f"  {name:>3}: {value:+.4f}  p={result.p_values[name]:.4g}{flag}")
+        if result.method == "lenth":
+            print(f"Lenth PSE: {result.std_error:.4f}  ME: {result.margin_of_error:.4f}")
+        else:
+            print(f"effect se: {result.std_error:.4f}  residual df: {result.df:g}")
+    return 0
+
+
+def cmd_response_surface(args: argparse.Namespace) -> int:
+    from .response_surface import box_behnken, central_composite, fit_quadratic
+
+    try:
+        if args.design == "bbd":
+            design = box_behnken(args.factors, center=3 if args.center is None else args.center)
+        else:
+            alpha = args.alpha
+            try:
+                alpha = float(alpha)
+            except ValueError:
+                pass
+            n_c = 8 if args.center is None else args.center
+            design = central_composite(args.factors, alpha=alpha, face=args.face,
+                                       center=(n_c - n_c // 2, n_c // 2))
+        fit = None
+        if args.responses:
+            fit = fit_quadratic(design, _parse_floats(args.responses, "--responses"))
+    except ValueError as exc:
+        print(f"response-surface: {exc}", file=sys.stderr)
+        return 2
+    extra = f"  alpha: {design.alpha:.4f}" if design.alpha is not None else ""
+    print(f"design: {design.kind}  runs: {design.n_runs}  center: {design.n_center}{extra}")
+    print("run  " + " ".join(f"{f:>7}" for f in design.factors) + "  type")
+    for i, (row, kind) in enumerate(zip(design.matrix, design.point_types), start=1):
+        print(f"{i:>3}  " + " ".join(f"{v:+7.4f}" for v in row) + f"  {kind}")
+    if fit is not None:
+        print(f"quadratic fit: R^2={fit.r_squared:.4f}  adj R^2={fit.adj_r_squared:.4f}  "
+              f"RMSE={fit.rmse:.4g}  resid df={fit.resid_df}")
+        for term, coef in fit.coefficients.items():
+            print(f"  {term:>5}: {coef:+.4f}")
+        print(f"stationary point: {fit.nature}")
+        if fit.stationary_point is not None:
+            pt = ", ".join(f"{f}={v:+.4f}" for f, v in zip(fit.factors, fit.stationary_point))
+            print(f"  at {pt}  predicted y={fit.stationary_response:.4f}")
+        print("  eigenvalues: " + ", ".join(f"{v:+.4f}" for v in fit.eigenvalues))
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     report = compose_demo_report(seed=args.seed)
     target = Path(args.output)
@@ -1511,6 +1604,8 @@ _COMMANDS = {
     "multiple-testing": cmd_multiple_testing,
     "equivalence": cmd_equivalence,
     "factorial": cmd_factorial,
+    "screening": cmd_screening,
+    "response-surface": cmd_response_surface,
     "report": cmd_report,
 }
 

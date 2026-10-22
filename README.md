@@ -672,3 +672,40 @@ experiment-design-kit factorial --factors 5 --fraction 1
 experiment-design-kit factorial --factors 7 --generators D=AB,E=AC,F=BC,G=ABC --fold-over
 experiment-design-kit factorial --factors 4 --responses 45,71,48,65,68,60,80,65,43,100,45,104,75,86,70,96
 ```
+
+## Screening and response-surface designs (Plackett–Burman, CCD, Box–Behnken)
+
+When many factors are candidates, a **Plackett–Burman** design screens up to `N − 1` of them in `N` runs, where `N` is a multiple of 4. Once the vital few are known, a **central composite** or **Box–Behnken** design supports a full second-order model, so you can locate an optimum.
+
+```python
+from experiment_design_kit import (box_behnken, central_composite, fit_quadratic,
+                                   plackett_burman, scaled_prediction_variance, screening_effects)
+
+pb = plackett_burman(11)                   # 12 runs, published cyclic generator, X'X = 12 I
+screen = screening_effects(pb, y12)        # main effects; Lenth's method when saturated
+ccd = central_composite(3)                 # rotatable: alpha = 8 ** 0.25 = 1.682, 8 + 6 + 8 centre runs
+ccd_o = central_composite(3, alpha="orthogonal", center=(2, 2))
+ccf = central_composite(3, face="faced")   # axial points on the cube faces
+bbd = box_behnken(3)                       # 12 edge midpoints + 3 centre runs, no corners
+fit = fit_quadratic(bbd, y15)
+fit.coefficients["A^2"], fit.r_squared
+fit.nature, fit.stationary_point, fit.stationary_response   # 'maximum', x_s, y(x_s)
+fit.eigenvalues, fit.predict([[0.2, -0.1, 0.0]])
+scaled_prediction_variance(ccd, points)    # constant on spheres for a rotatable design
+```
+
+- `plackett_burman(k, n_runs=None)` uses the published cyclic generators for N = 12, 20 and 24 (Plackett & Burman 1946). Other sizes use Paley's construction (N − 1 prime and ≡ 3 mod 4: 28 is not covered, 44 is) or Sylvester doubling (8, 16, 32, 40, 48, …). Every column is balanced and orthogonal.
+- `central_composite` builds a `2^(k-p)` cube plus `2k` axial points plus centre runs. `alpha` can be:
+  - `"rotatable"`: `F^(1/4)`;
+  - `"orthogonal"`: `α² = (√(F·N) − F)/2`, which makes the pure quadratic columns orthogonal;
+  - `"face"`;
+  - a number.
+  
+  It also supports the circumscribed, inscribed and faced variants.
+- `fit_quadratic` fits `y = b0 + x'b + x'Bx` by least squares. It reports R², adjusted R² and RMSE, then does canonical analysis: the stationary point `−B⁻¹b/2`, the eigenvalues of `B`, and whether the point is a maximum, minimum, saddle or ridge.
+
+```bash
+experiment-design-kit screening --factors 7 --responses 10,12,9,15,11,14,8,13
+experiment-design-kit response-surface --factors 3 --design bbd --responses 69,75,73,80,62,70,68,76,61,72,66,74,82,81,83
+experiment-design-kit response-surface --factors 2 --design ccd --alpha orthogonal
+```
