@@ -24,6 +24,18 @@ from .factorial import (
     full_factorial,
     lenth_pse,
 )
+from .optimal_design import (
+    OptimalDesign,
+    candidate_grid,
+    centered_l2_discrepancy,
+    d_efficiency,
+    d_optimal_design,
+    latin_hypercube,
+    maximin_distance,
+    maximin_latin_hypercube,
+    model_matrix,
+    phi_p,
+)
 from .response_surface import (
     PLACKETT_BURMAN_GENERATORS,
     QuadraticFit,
@@ -157,6 +169,16 @@ from .stats import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "OptimalDesign",
+    "candidate_grid",
+    "centered_l2_discrepancy",
+    "d_efficiency",
+    "d_optimal_design",
+    "latin_hypercube",
+    "maximin_distance",
+    "maximin_latin_hypercube",
+    "model_matrix",
+    "phi_p",
     "PLACKETT_BURMAN_GENERATORS",
     "QuadraticFit",
     "ResponseSurfaceDesign",
