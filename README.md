@@ -709,3 +709,26 @@ experiment-design-kit screening --factors 7 --responses 10,12,9,15,11,14,8,13
 experiment-design-kit response-surface --factors 3 --design bbd --responses 69,75,73,80,62,70,68,76,61,72,66,74,82,81,83
 experiment-design-kit response-surface --factors 2 --design ccd --alpha orthogonal
 ```
+
+## Space-filling and D-optimal designs
+
+`experiment_design_kit.optimal_design` covers run budgets and regions that
+classical factorial/RSM families don't fit:
+
+- `latin_hypercube(n, k)` — McKay–Beckman–Conover LHS on `[0, 1)^k` (one run per stratum per factor).
+- `maximin_latin_hypercube(n, k)` — within-column swap search minimising the Morris–Mitchell `phi_p` criterion (≈ maximising the smallest inter-point distance).
+- `centered_l2_discrepancy(x)` — Hickernell's CD² (matches `scipy.stats.qmc.discrepancy(method="CD")`), plus `maximin_distance` and `phi_p`.
+- `d_optimal_design(n_runs, candidates, model=...)` — Fedorov exchange with random restarts for `linear`, `interaction` or `quadratic` models over any candidate set (drop infeasible points to impose constraints); reports `log det(X'X)` and D-efficiency.
+
+```python
+from experiment_design_kit import candidate_grid, d_optimal_design, maximin_latin_hypercube
+
+d = d_optimal_design(10, candidate_grid(3, levels=3), model="quadratic", seed=0)
+print(d.matrix, d.d_efficiency)
+x = maximin_latin_hypercube(20, 3, seed=1)
+```
+
+```bash
+experiment-design-kit optimal-design --factors 3 --runs 10 --model quadratic --seed 0
+experiment-design-kit optimal-design --factors 2 --runs 12 --kind maximin-lhs --seed 1
+```

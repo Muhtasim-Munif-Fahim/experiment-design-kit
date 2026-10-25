@@ -160,6 +160,22 @@ def _build_parser() -> argparse.ArgumentParser:
     rsm.add_argument("--responses", default=None,
                      help="Comma-separated responses in design order to fit the quadratic model")
 
+    opt = sub.add_parser(
+        "optimal-design",
+        help="Space-filling Latin hypercube or D-optimal exact design (Fedorov exchange)",
+    )
+    opt.add_argument("--factors", type=int, required=True, help="Number of factors k")
+    opt.add_argument("--runs", type=int, required=True, help="Number of runs n")
+    opt.add_argument("--kind", choices=["lhs", "maximin-lhs", "d-optimal"], default="d-optimal",
+                     help="Design type (default d-optimal)")
+    opt.add_argument("--model", choices=["linear", "interaction", "quadratic"], default="quadratic",
+                     help="Model for d-optimal (default quadratic)")
+    opt.add_argument("--levels", type=int, default=3, help="Candidate grid levels per factor (default 3)")
+    opt.add_argument("--no-repeats", action="store_true", help="Forbid replicated candidate points")
+    opt.add_argument("--iterations", type=int, default=2000, help="Swap iterations for maximin-lhs")
+    opt.add_argument("--starts", type=int, default=10, help="Random restarts for d-optimal (default 10)")
+    opt.add_argument("--seed", type=int, default=None, help="Random seed")
+
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
     rep.add_argument(
@@ -1578,6 +1594,44 @@ def cmd_response_surface(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_optimal_design(args: argparse.Namespace) -> int:
+    from .optimal_design import (
+        candidate_grid,
+        centered_l2_discrepancy,
+        d_optimal_design,
+        latin_hypercube,
+        maximin_distance,
+        maximin_latin_hypercube,
+    )
+
+    try:
+        if args.kind == "d-optimal":
+            design = d_optimal_design(
+                args.runs, candidate_grid(args.factors, args.levels), model=args.model,
+                allow_repeats=not args.no_repeats, n_starts=args.starts, seed=args.seed,
+            )
+            matrix = design.matrix
+        elif args.kind == "maximin-lhs":
+            matrix = maximin_latin_hypercube(args.runs, args.factors, seed=args.seed,
+                                             iterations=args.iterations)
+        else:
+            matrix = latin_hypercube(args.runs, args.factors, seed=args.seed)
+    except ValueError as exc:
+        print(f"optimal-design: {exc}", file=sys.stderr)
+        return 2
+    print(f"design: {args.kind}  runs: {matrix.shape[0]}  factors: {matrix.shape[1]}")
+    print("run  " + " ".join(f"{'x' + str(i + 1):>7}" for i in range(matrix.shape[1])))
+    for i, row in enumerate(matrix, start=1):
+        print(f"{i:>3}  " + " ".join(f"{v:>7.4f}" for v in row))
+    if args.kind == "d-optimal":
+        print(f"model: {design.model}  log det(X'X): {design.log_det:.4f}  "
+              f"D-efficiency: {design.d_efficiency:.2f}%  exchanges: {design.n_exchanges}")
+    else:
+        print(f"min distance: {maximin_distance(matrix):.4f}  "
+              f"centered L2 discrepancy: {centered_l2_discrepancy(matrix):.6f}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     report = compose_demo_report(seed=args.seed)
     target = Path(args.output)
@@ -1606,6 +1660,7 @@ _COMMANDS = {
     "factorial": cmd_factorial,
     "screening": cmd_screening,
     "response-surface": cmd_response_surface,
+    "optimal-design": cmd_optimal_design,
     "report": cmd_report,
 }
 
