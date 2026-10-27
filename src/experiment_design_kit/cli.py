@@ -176,6 +176,23 @@ def _build_parser() -> argparse.ArgumentParser:
     opt.add_argument("--starts", type=int, default=10, help="Random restarts for d-optimal (default 10)")
     opt.add_argument("--seed", type=int, default=None, help="Random seed")
 
+    mix = sub.add_parser(
+        "mixture",
+        help="Mixture designs (simplex-lattice, simplex-centroid, extreme vertices) and Scheffé model fit",
+    )
+    mix.add_argument("--components", type=int, default=None, help="Number of mixture components q")
+    mix.add_argument("--design", choices=["lattice", "centroid", "extreme-vertices"], default="lattice",
+                     help="Design family (default lattice)")
+    mix.add_argument("--degree", type=int, default=2, help="Simplex-lattice degree m (default 2)")
+    mix.add_argument("--augment", action="store_true", help="Add overall centroid and axial check blends")
+    mix.add_argument("--lower", default=None, help="Comma-separated lower bounds (extreme-vertices)")
+    mix.add_argument("--upper", default=None, help="Comma-separated upper bounds (extreme-vertices)")
+    mix.add_argument("--model", choices=["linear", "quadratic", "special_cubic", "cubic"], default="quadratic",
+                     help="Scheffé model to fit when --responses is given (default quadratic)")
+    mix.add_argument("--responses", default=None,
+                     help="Comma-separated responses in design order to fit the Scheffé model")
+    mix.add_argument("--minimize", action="store_true", help="Report the blend minimising the fitted response")
+
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
     rep.add_argument(
@@ -1632,6 +1649,47 @@ def cmd_optimal_design(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_mixture(args: argparse.Namespace) -> int:
+    from .mixture import best_blend, cox_effects, extreme_vertices, fit_scheffe, simplex_centroid, simplex_lattice
+
+    try:
+        lower = _parse_floats(args.lower, "--lower") if args.lower else None
+        upper = _parse_floats(args.upper, "--upper") if args.upper else None
+        if args.design == "extreme-vertices":
+            design = extreme_vertices(lower, upper, q=args.components)
+        else:
+            if args.components is None:
+                raise ValueError("--components is required for lattice/centroid designs")
+            if args.design == "centroid":
+                design = simplex_centroid(args.components, augment=args.augment)
+            else:
+                design = simplex_lattice(args.components, args.degree, augment=args.augment)
+        fit = None
+        if args.responses:
+            fit = fit_scheffe(design, _parse_floats(args.responses, "--responses"), model=args.model)
+            bounds = (lower, upper) if args.design == "extreme-vertices" else (None, None)
+            blend, best = best_blend(fit, lower=bounds[0], upper=bounds[1], maximize=not args.minimize)
+            effects = cox_effects(fit)
+    except ValueError as exc:
+        print(f"mixture: {exc}", file=sys.stderr)
+        return 2
+    print(f"design: {design.kind}  runs: {design.n_runs}  components: {design.n_components}")
+    print("run  " + " ".join(f"{c:>7}" for c in design.components) + "  type")
+    for i, (row, kind) in enumerate(zip(design.matrix, design.point_types), start=1):
+        print(f"{i:>3}  " + " ".join(f"{v:7.4f}" for v in row) + f"  {kind}")
+    if fit is not None:
+        print(f"Scheffé {fit.model} fit: R^2={fit.r_squared:.4f}  adj R^2={fit.adj_r_squared:.4f}  "
+              f"RMSE={fit.rmse:.4g}  resid df={fit.resid_df}")
+        for term, coef in fit.coefficients.items():
+            print(f"  {term:>14}: {coef:+.4f}")
+        print("Cox total effects (from centroid): " + ", ".join(
+            f"{c}={e['total_effect']:+.4f}" for c, e in effects.items()))
+        label = "min" if args.minimize else "max"
+        print(f"best blend ({label}): " + ", ".join(f"{c}={v:.3f}" for c, v in zip(fit.components, blend))
+              + f"  predicted y={best:.4f}")
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     report = compose_demo_report(seed=args.seed)
     target = Path(args.output)
@@ -1660,6 +1718,7 @@ _COMMANDS = {
     "factorial": cmd_factorial,
     "screening": cmd_screening,
     "response-surface": cmd_response_surface,
+    "mixture": cmd_mixture,
     "optimal-design": cmd_optimal_design,
     "report": cmd_report,
 }
