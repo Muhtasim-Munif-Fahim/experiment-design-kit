@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, non-inferiority and TOST equivalence tests and planning, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, two-level full/fractional factorial designs with alias structure and Lenth effect analysis, Plackett-Burman screening and central composite / Box-Behnken response-surface designs with quadratic canonical analysis, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, non-inferiority and TOST equivalence tests and planning, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, two-level full/fractional factorial designs with alias structure and Lenth effect analysis, Plackett-Burman screening and central composite / Box-Behnken response-surface designs with quadratic canonical analysis, mixture designs (simplex-lattice/centroid, extreme vertices) with Scheffé models, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -35,6 +35,21 @@ from .optimal_design import (
     maximin_latin_hypercube,
     model_matrix,
     phi_p,
+)
+from .mixture import (
+    SCHEFFE_MODELS,
+    MixtureDesign,
+    MixtureFit,
+    best_blend,
+    cox_effects,
+    extreme_vertices,
+    fit_scheffe,
+    from_pseudocomponents,
+    scheffe_model_matrix,
+    scheffe_terms,
+    simplex_centroid,
+    simplex_lattice,
+    to_pseudocomponents,
 )
 from .response_surface import (
     PLACKETT_BURMAN_GENERATORS,
@@ -169,6 +184,19 @@ from .stats import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "SCHEFFE_MODELS",
+    "MixtureDesign",
+    "MixtureFit",
+    "best_blend",
+    "cox_effects",
+    "extreme_vertices",
+    "fit_scheffe",
+    "from_pseudocomponents",
+    "scheffe_model_matrix",
+    "scheffe_terms",
+    "simplex_centroid",
+    "simplex_lattice",
+    "to_pseudocomponents",
     "OptimalDesign",
     "candidate_grid",
     "centered_l2_discrepancy",

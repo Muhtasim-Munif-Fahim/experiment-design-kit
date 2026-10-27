@@ -732,3 +732,25 @@ x = maximin_latin_hypercube(20, 3, seed=1)
 experiment-design-kit optimal-design --factors 3 --runs 10 --model quadratic --seed 0
 experiment-design-kit optimal-design --factors 2 --runs 12 --kind maximin-lhs --seed 1
 ```
+
+## Mixture designs and Scheffé models
+
+`experiment_design_kit.mixture` handles experiments whose factors are blend proportions (`x_i >= 0`, `sum x = 1`):
+
+- `simplex_lattice(q, m)` and `simplex_centroid(q)` (optionally `augment=True` for the centroid and axial check blends).
+- `extreme_vertices(lower, upper)` — McLean–Anderson vertices of a bounded region plus edge/overall centroids; `to_pseudocomponents` / `from_pseudocomponents` for lower-bounded regions.
+- `fit_scheffe(design, y, model=...)` — Scheffé `linear`, `quadratic`, `special_cubic` or `cubic` polynomials (no intercept), with standard errors, R² and adjusted R².
+- `cox_effects(fit)` — response traces along Cox directions and total component effects; `best_blend(fit, lower=, upper=)` — grid search for the optimal blend.
+
+```python
+from experiment_design_kit import simplex_lattice, fit_scheffe, best_blend
+design = simplex_lattice(3, 2)
+fit = fit_scheffe(design, [11.7, 9.4, 16.4, 15.3, 16.9, 10.5])   # Cornell yarn elongation
+fit.coefficients["x1*x2"]                                         # 19.0
+best_blend(fit)                                                   # (blend, predicted max)
+```
+
+```bash
+experiment-design-kit mixture --components 3 --degree 2 --responses 11.7,9.4,16.4,15.3,16.9,10.5
+experiment-design-kit mixture --design extreme-vertices --lower 0.1,0.1,0.1 --upper 0.6,0.6,0.6
+```
