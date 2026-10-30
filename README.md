@@ -754,3 +754,28 @@ best_blend(fit)                                                   # (blend, pred
 experiment-design-kit mixture --components 3 --degree 2 --responses 11.7,9.4,16.4,15.3,16.9,10.5
 experiment-design-kit mixture --design extreme-vertices --lower 0.1,0.1,0.1 --upper 0.6,0.6,0.6
 ```
+
+## Latin squares, Graeco-Latin squares and BIBDs
+
+`experiment_design_kit.block_designs` covers classical row-column and incomplete-block designs:
+
+- `latin_square(n, seed=)`: a randomised `n x n` Latin square (rows, columns and symbols permuted). It blocks on two nuisance factors at once, such as day and operator.
+- `mutually_orthogonal_latin_squares(q)`: the complete set of `q - 1` MOLS for prime powers `q <= 32`, built over `GF(q)`. `graeco_latin_square(n)` gives an orthogonal pair for three blocking factors. Orders 2 and 6 have no pair and raise. `is_latin_square` and `are_orthogonal` validate squares.
+- `latin_square_anova(y, square)`: the row / column / treatment ANOVA, with `(n-1)(n-2)` error df and F tests.
+- `balanced_incomplete_block_design(v, k)`: a `(v, b, r, k, lambda)` BIBD. It uses an affine plane `AG(2, q)`, a projective plane `PG(2, q)`, its complement, or all k-subsets. `.incidence()`, `.efficiency` (`lambda v / (r k)`) and `.randomized()` are available, and `bibd_parameters(blocks)` checks a block list.
+- `bibd_intrablock_analysis(blocks, y)`: adjusted totals `Q_i`, effects `tau_i = k Q_i / (lambda v)`, the adjusted-treatment F test and the SE of a pairwise difference. These match the block + treatment least-squares fit.
+
+```python
+from experiment_design_kit import balanced_incomplete_block_design, bibd_intrablock_analysis, latin_square, latin_square_anova
+
+d = balanced_incomplete_block_design(7, 3)       # Fano plane: b=7, r=3, lambda=1
+res = bibd_intrablock_analysis(d.blocks, y)      # y[j][m] = response of treatment d.blocks[j][m]
+res.effects, res.p_value, res.efficiency          # efficiency 7/9
+latin_square_anova(Y, latin_square(5, seed=1)).summary()
+```
+
+```bash
+experiment-design-kit block-design latin --n 5 --seed 1
+experiment-design-kit block-design graeco-latin --n 4
+experiment-design-kit block-design bibd --v 13 --k 4
+```

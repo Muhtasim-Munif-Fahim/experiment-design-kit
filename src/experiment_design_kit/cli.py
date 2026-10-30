@@ -193,6 +193,17 @@ def _build_parser() -> argparse.ArgumentParser:
                      help="Comma-separated responses in design order to fit the Scheffé model")
     mix.add_argument("--minimize", action="store_true", help="Report the blend minimising the fitted response")
 
+    bd = sub.add_parser(
+        "block-design",
+        help="Latin, Graeco-Latin (MOLS) and balanced incomplete block designs",
+    )
+    bd.add_argument("kind", choices=["latin", "graeco-latin", "mols", "bibd"], help="Design family")
+    bd.add_argument("--n", type=int, default=4, help="Order of the square (latin/graeco-latin/mols)")
+    bd.add_argument("--v", type=int, default=7, help="Number of treatments (bibd)")
+    bd.add_argument("--k", type=int, default=3, help="Block size (bibd)")
+    bd.add_argument("--no-randomize", action="store_true", help="Print the standard (unrandomised) design")
+    bd.add_argument("--seed", type=int, default=None, help="Random seed")
+
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
     rep.add_argument(
@@ -1690,6 +1701,49 @@ def cmd_mixture(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_block_design(args: argparse.Namespace) -> int:
+    from .block_designs import (
+        balanced_incomplete_block_design,
+        graeco_latin_square,
+        latin_square,
+        mutually_orthogonal_latin_squares,
+    )
+
+    letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    greek = "abcdefghijklmnopqrstuvwxyz0123456789"
+    rand = not args.no_randomize
+    try:
+        if args.kind == "latin":
+            L = latin_square(args.n, randomize=rand, seed=args.seed)
+            print(f"Latin square of order {args.n} (rows x columns, letters = treatments)")
+            for row in L:
+                print("  " + " ".join(letters[t] if args.n <= len(letters) else str(t) for t in row))
+        elif args.kind == "graeco-latin":
+            A, B = graeco_latin_square(args.n, randomize=rand, seed=args.seed)
+            print(f"Graeco-Latin square of order {args.n} (uppercase = Latin factor, lowercase = Greek factor)")
+            for ra, rb in zip(A, B):
+                print("  " + " ".join(f"{letters[a]}{greek[b]}" for a, b in zip(ra, rb)))
+        elif args.kind == "mols":
+            squares = mutually_orthogonal_latin_squares(args.n)
+            print(f"{len(squares)} mutually orthogonal Latin squares of order {args.n}")
+            for i, sq in enumerate(squares, start=1):
+                print(f"square {i}:")
+                for row in sq:
+                    print("  " + " ".join(str(int(t)) for t in row))
+        else:
+            d = balanced_incomplete_block_design(args.v, args.k)
+            if rand:
+                d = d.randomized(seed=args.seed)
+            print(f"BIBD v={d.v} b={d.b} r={d.r} k={d.k} lambda={d.lam}  ({d.construction})")
+            print(f"efficiency factor: {d.efficiency:.4f}")
+            for j, blk in enumerate(d.blocks, start=1):
+                print(f"  block {j:>3}: " + " ".join(str(t + 1) for t in blk))
+    except ValueError as exc:
+        print(f"block-design: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     report = compose_demo_report(seed=args.seed)
     target = Path(args.output)
@@ -1720,6 +1774,7 @@ _COMMANDS = {
     "response-surface": cmd_response_surface,
     "mixture": cmd_mixture,
     "optimal-design": cmd_optimal_design,
+    "block-design": cmd_block_design,
     "report": cmd_report,
 }
 
