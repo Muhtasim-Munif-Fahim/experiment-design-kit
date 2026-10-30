@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, non-inferiority and TOST equivalence tests and planning, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, two-level full/fractional factorial designs with alias structure and Lenth effect analysis, Plackett-Burman screening and central composite / Box-Behnken response-surface designs with quadratic canonical analysis, mixture designs (simplex-lattice/centroid, extreme vertices) with Scheffé models, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, non-inferiority and TOST equivalence tests and planning, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, two-level full/fractional factorial designs with alias structure and Lenth effect analysis, Plackett-Burman screening and central composite / Box-Behnken response-surface designs with quadratic canonical analysis, mixture designs (simplex-lattice/centroid, extreme vertices) with Scheffé models, Latin / Graeco-Latin squares (MOLS over GF(q)) and balanced incomplete block designs with their ANOVAs, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -11,6 +11,20 @@ from .bayesian import (
     required_bayesian_sample_size,
 )
 from .adaptive import ThompsonAllocationResult, ThompsonAllocator, simulate_thompson_ab
+from .block_designs import (
+    BIBD,
+    BIBDAnalysis,
+    LatinSquareANOVA,
+    are_orthogonal,
+    balanced_incomplete_block_design,
+    bibd_intrablock_analysis,
+    bibd_parameters,
+    graeco_latin_square,
+    is_latin_square,
+    latin_square,
+    latin_square_anova,
+    mutually_orthogonal_latin_squares,
+)
 from .cli import main
 from .factorial import (
     MINIMUM_ABERRATION_GENERATORS,
@@ -184,6 +198,18 @@ from .stats import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "BIBD",
+    "BIBDAnalysis",
+    "LatinSquareANOVA",
+    "are_orthogonal",
+    "balanced_incomplete_block_design",
+    "bibd_intrablock_analysis",
+    "bibd_parameters",
+    "graeco_latin_square",
+    "is_latin_square",
+    "latin_square",
+    "latin_square_anova",
+    "mutually_orthogonal_latin_squares",
     "SCHEFFE_MODELS",
     "MixtureDesign",
     "MixtureFit",
