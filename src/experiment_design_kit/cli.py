@@ -204,6 +204,18 @@ def _build_parser() -> argparse.ArgumentParser:
     bd.add_argument("--no-randomize", action="store_true", help="Print the standard (unrandomised) design")
     bd.add_argument("--seed", type=int, default=None, help="Random seed")
 
+    tg = sub.add_parser(
+        "taguchi",
+        help="Taguchi orthogonal arrays (L4..L81, L18) and signal-to-noise analysis",
+    )
+    tg.add_argument("--array", default=None, help="Standard array name (L4, L8, L9, L16, L16b, L18, L25, L27, ...)")
+    tg.add_argument("--levels", default=None, help="Comma-separated factor level counts; picks the smallest array")
+    tg.add_argument("--responses", default=None,
+                    help="Runs separated by ';', replicates by ',' (e.g. '10,11;12,13;...') to analyze")
+    tg.add_argument("--kind", choices=["larger", "smaller", "nominal", "nominal_variance"], default="larger",
+                    help="S/N ratio type (default larger-the-better)")
+    tg.add_argument("--pool", type=int, default=0, help="Pool the N smallest factors into error")
+
     rep = sub.add_parser("report", help="Run the full demo workflow and write a Markdown report")
     rep.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
     rep.add_argument(
@@ -1744,6 +1756,35 @@ def cmd_block_design(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_taguchi(args: argparse.Namespace) -> int:
+    from .taguchi import taguchi_analysis, taguchi_array, taguchi_design
+
+    try:
+        if args.levels:
+            levels = [int(v) for v in args.levels.split(",") if v.strip()]
+            name, design, cols = taguchi_design(levels)
+            print(f"{name}: factors assigned to columns " + ", ".join(str(c + 1) for c in cols))
+        elif args.array:
+            name = args.array
+            design = taguchi_array(name)
+            print(f"{name}: {design.shape[0]} runs x {design.shape[1]} columns")
+        else:
+            print("taguchi: give --array or --levels", file=sys.stderr)
+            return 2
+        for i, row in enumerate(design, start=1):
+            print(f"  run {i:>3}: " + " ".join(str(int(v) + 1) for v in row))
+        if args.responses:
+            runs = [[float(v) for v in r.split(",") if v.strip()] for r in args.responses.split(";") if r.strip()]
+            if len({len(r) for r in runs}) != 1:
+                raise ValueError("every run needs the same number of replicates")
+            res = taguchi_analysis(design, np.array(runs), kind=args.kind, pool=args.pool)
+            print(res.summary())
+    except ValueError as exc:
+        print(f"taguchi: {exc}", file=sys.stderr)
+        return 2
+    return 0
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     report = compose_demo_report(seed=args.seed)
     target = Path(args.output)
@@ -1775,6 +1816,7 @@ _COMMANDS = {
     "mixture": cmd_mixture,
     "optimal-design": cmd_optimal_design,
     "block-design": cmd_block_design,
+    "taguchi": cmd_taguchi,
     "report": cmd_report,
 }
 
