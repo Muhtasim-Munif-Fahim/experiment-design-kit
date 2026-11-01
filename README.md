@@ -779,3 +779,28 @@ experiment-design-kit block-design latin --n 5 --seed 1
 experiment-design-kit block-design graeco-latin --n 4
 experiment-design-kit block-design bibd --v 13 --k 4
 ```
+
+## Taguchi orthogonal arrays and signal-to-noise analysis
+
+`experiment_design_kit.taguchi` supports robust parameter design (Taguchi; Phadke 1989):
+
+- `orthogonal_array(q, k)` builds the Rao–Hamming strength-2 array `L_{q^k}(q^{(q^k-1)/(q-1)})` over `GF(q)`. Columns come in Taguchi's standard order, so `L8` and `L9` reproduce the published tables. `taguchi_array("L8")` looks arrays up by name: `L4`, `L8`, `L9`, `L16`, `L16b` (4^5), `L18` (2^1 3^7), `L25`, `L27`, `L32`, `L49`, `L64b` (4^21) and `L81`.
+- `taguchi_design([3, 3, 3, 2])` picks the smallest array that fits the factor levels (here `L18`). `interaction_columns(q, k, i, j)` is the triangular table of interaction columns, and `is_orthogonal_array(A, strength)` checks balance.
+- `signal_to_noise(y, kind)` computes S/N in dB: larger-the-better `-10 log10 mean(1/y²)`, smaller-the-better `-10 log10 mean(y²)`, nominal-the-best `10 log10(ȳ²/s²)`, and `nominal_variance` `-10 log10 s²`.
+- `taguchi_analysis(design, y, kind, pool=)` gives:
+  - S/N and mean response tables, delta and rank;
+  - the optimal levels and the additive-model prediction at the optimum;
+  - an ANOVA on S/N with percent contribution. Error comes from unassigned columns, or from pooling the smallest factors.
+
+```python
+from experiment_design_kit import taguchi_design, taguchi_analysis
+
+name, design, cols = taguchi_design([3, 3, 3, 3])     # -> "L9"
+res = taguchi_analysis(design, Y, kind="smaller")     # Y: 9 runs x noise replicates
+print(res.summary()); res.optimal_levels, res.predicted_sn
+```
+
+```bash
+experiment-design-kit taguchi --array L8
+experiment-design-kit taguchi --levels 3,3,3 --responses "10,11;12,13;14,15;11,12;13,15;12,12.5;16,17;12,14;13,13.5"
+```
