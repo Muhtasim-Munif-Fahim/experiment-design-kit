@@ -804,3 +804,21 @@ print(res.summary()); res.optimal_levels, res.predicted_sn
 experiment-design-kit taguchi --array L8
 experiment-design-kit taguchi --levels 3,3,3 --responses "10,11;12,13;14,15;11,12;13,15;12,12.5;16,17;12,14;13,13.5"
 ```
+
+## Crossover designs
+
+`experiment_design_kit.crossover` covers within-subject designs where every subject receives more than one treatment:
+
+```python
+from experiment_design_kit import williams_design, ab_ba_crossover_analysis, crossover_sample_size
+
+williams_design(4)            # 4x4 Williams square, balanced for first-order carryover
+williams_design(5)            # odd t: square + mirror (10 sequences)
+res = ab_ba_crossover_analysis(ab_p1, ab_p2, ba_p1, ba_p2)
+print(res.treatment_effect, res.treatment_ci, res.period_effect, res.carryover_p, res.carryover_flag)
+crossover_sample_size(delta=1.0, sigma_w=1.5, sigma_b=3.0)  # vs. equivalent parallel trial
+```
+
+The AB/BA analysis follows Hills & Armitage (1979). It reports the treatment and period effects
+from within-subject period differences, plus Grizzle's carryover test on subject totals
+(at alpha = 0.10 by default).
