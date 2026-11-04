@@ -387,4 +387,21 @@ __all__ = [
     "t_test_significance",
     "compose_demo_report",
     "render_report",
+    "williams_design",
+    "carryover_balance",
+    "is_carryover_balanced",
+    "CrossoverAnalysis",
+    "ab_ba_crossover_analysis",
+    "CrossoverSampleSize",
+    "crossover_sample_size",
 ]
+
+from .crossover import (  # noqa: E402
+    CrossoverAnalysis,
+    CrossoverSampleSize,
+    ab_ba_crossover_analysis,
+    carryover_balance,
+    crossover_sample_size,
+    is_carryover_balanced,
+    williams_design,
+)
