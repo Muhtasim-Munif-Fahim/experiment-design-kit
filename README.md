@@ -822,3 +822,24 @@ crossover_sample_size(delta=1.0, sigma_w=1.5, sigma_b=3.0)  # vs. equivalent par
 The AB/BA analysis follows Hills & Armitage (1979). It reports the treatment and period effects
 from within-subject period differences, plus Grizzle's carryover test on subject totals
 (at alpha = 0.10 by default).
+
+## Mann-Whitney / Wilcoxon rank-sum power
+
+When outcomes are ordinal, skewed, or outlier-heavy, plan with the two-sample
+Wilcoxon rank-sum (Mann-Whitney U) test instead of a t-test. Power is driven by
+`p = P(X > Y) + 0.5 P(X = Y)` (Noether 1987):
+
+```python
+from experiment_design_kit import (
+    mann_whitney_power,
+    mann_whitney_sample_size,
+    mann_whitney_p_from_shift,
+)
+
+plan = mann_whitney_sample_size(p=0.64, alpha=0.05, power=0.8)
+mann_whitney_power(0.64, plan.n_per_group)
+
+# Map a location shift under a named family into p:
+p = mann_whitney_p_from_shift(0.5, family="normal")
+```
+

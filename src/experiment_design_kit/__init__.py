@@ -11,6 +11,12 @@ from .bayesian import (
     required_bayesian_sample_size,
 )
 from .adaptive import ThompsonAllocationResult, ThompsonAllocator, simulate_thompson_ab
+from .nonparametric import (
+    MannWhitneyPlan,
+    mann_whitney_p_from_shift,
+    mann_whitney_power,
+    mann_whitney_sample_size,
+)
 from .block_designs import (
     BIBD,
     BIBDAnalysis,
@@ -286,6 +292,10 @@ __all__ = [
     "tost_proportions",
     "ThompsonAllocationResult",
     "ThompsonAllocator",
+    "MannWhitneyPlan",
+    "mann_whitney_p_from_shift",
+    "mann_whitney_power",
+    "mann_whitney_sample_size",
     "simulate_thompson_ab",
     "ClusterSampleSizeResult",
     "ICCEstimate",
