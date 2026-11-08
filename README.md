@@ -843,3 +843,17 @@ mann_whitney_power(0.64, plan.n_per_group)
 p = mann_whitney_p_from_shift(0.5, family="normal")
 ```
 
+## Log-rank (time-to-event) power and sample size
+
+For survival / time-to-event outcomes (churn, time-to-conversion, clinical endpoints) the log-rank test's power depends on the number of **events**. The kit plans in two steps. First it computes the required events from Schoenfeld's or Freedman's formula for a target hazard ratio and allocation. Then it converts events to subjects using the probability that an enrolled subject's event is observed under uniform accrual, extra follow-up and an exponential dropout hazard (Lachin & Foulkes 1986).
+
+```python
+from experiment_design_kit import hazard_from_median, logrank_sample_size, logrank_power, schoenfeld_events
+
+schoenfeld_events(0.7)                          # 247 events for HR 0.7, alpha 0.05, power 0.8
+lam = hazard_from_median(12.0)                  # control median 12 months
+plan = logrank_sample_size(0.7, lam, accrual_time=24, follow_up=12,
+                           dropout_hazard=-math.log(1 - 0.1) / 12)   # 10%/yr dropout
+plan.events, plan.n_total, plan.event_prob_pooled, plan.achieved_power
+logrank_power(400, 0.7, lam, 24, 12)
+```
