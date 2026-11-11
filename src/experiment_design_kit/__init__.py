@@ -1,4 +1,4 @@
-"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, non-inferiority and TOST equivalence tests and planning, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, two-level full/fractional factorial designs with alias structure and Lenth effect analysis, Plackett-Burman screening and central composite / Box-Behnken response-surface designs with quadratic canonical analysis, mixture designs (simplex-lattice/centroid, extreme vertices) with Scheffé models, Latin / Graeco-Latin squares (MOLS over GF(q)) and balanced incomplete block designs with their ANOVAs, Taguchi orthogonal arrays with signal-to-noise robust-design analysis, log-rank (time-to-event) events / sample-size planning, and A/B simulation."""
+"""experiment-design-kit: effect sizes, sample-size, power, MDE, CUPED, sequential testing, non-inferiority and TOST equivalence tests and planning, Bayesian planning, ICC-aware cluster-randomized power and sample size, stratified, blocked, cluster, and switchback randomization, Mahalanobis rerandomization with design-respecting randomization tests, sample ratio mismatch (SRM) checks, delta-method ratio metrics, multiple-testing corrections (FWER/FDR) with A/B/n sample sizes, two-level full/fractional factorial designs with alias structure and Lenth effect analysis, Plackett-Burman screening and central composite / Box-Behnken response-surface designs with quadratic canonical analysis, mixture designs (simplex-lattice/centroid, extreme vertices) with Scheffé models, Latin / Graeco-Latin squares (MOLS over GF(q)) and balanced incomplete block designs with their ANOVAs, Taguchi orthogonal arrays with signal-to-noise robust-design analysis, log-rank (time-to-event) events / sample-size planning, and A/B simulation."""
 
 from .bayesian import (
     BayesianABTestResult,
@@ -157,6 +157,15 @@ from .randomization import (
     standardized_mean_difference,
     stratified_randomization,
     switchback_randomization,
+)
+from .rerandomization import (
+    RerandomizationResult,
+    RerandomizationTestResult,
+    mahalanobis_balance,
+    rerandomization_test,
+    rerandomization_threshold,
+    rerandomization_variance_reduction,
+    rerandomize,
 )
 from .multiple_testing import (
     MultiArmSampleSizeResult,
@@ -353,6 +362,13 @@ __all__ = [
     "cluster_balance_report",
     "cluster_randomization",
     "switchback_randomization",
+    "RerandomizationResult",
+    "RerandomizationTestResult",
+    "mahalanobis_balance",
+    "rerandomization_test",
+    "rerandomization_threshold",
+    "rerandomization_variance_reduction",
+    "rerandomize",
     "format_balance_report",
     "quantile_bins",
     "standardized_mean_difference",
