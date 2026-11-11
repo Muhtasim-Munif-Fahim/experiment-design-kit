@@ -246,6 +246,27 @@ print(assigned.arm_counts)    # periods per arm
 print(assigned.assignment[:8])
 ```
 
+## Rerandomization (Mahalanobis balance criterion)
+
+Complete randomization balances covariates only on average. Rerandomization
+(Morgan & Rubin 2012) redraws until the Mahalanobis distance between arm
+covariate means, `M = (n_t n_c / n) d' S^-1 d`, is below `a = chi2_k.ppf(p_a)`.
+Each covariate mean difference then has variance reduced by
+`1 - P(chi2_{k+2} <= a) / P(chi2_k <= a)` (about 98% for `k = 3`, `p_a = 0.01`),
+while difference in means stays unbiased. Analyse with a randomization test
+that draws from the same acceptance region.
+
+```python
+import numpy as np
+from experiment_design_kit import rerandomize, rerandomization_test
+
+X = np.random.default_rng(0).normal(size=(100, 3))       # baseline covariates
+design = rerandomize(X, acceptance_prob=0.01, seed=1)
+design.mahalanobis, design.threshold, design.n_draws, design.variance_reduction
+# ... run the experiment, collect y ...
+# rerandomization_test(y, X, design.assignment, threshold=design.threshold, seed=2).p_value
+```
+
 ## Sample ratio mismatch (SRM)
 
 Before reading any treatment effect, check that each arm received the
