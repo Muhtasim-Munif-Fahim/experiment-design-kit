@@ -267,6 +267,31 @@ design.mahalanobis, design.threshold, design.n_draws, design.variance_reduction
 # rerandomization_test(y, X, design.assignment, threshold=design.threshold, seed=2).p_value
 ```
 
+## Sequential covariate-adaptive allocation (biased coin, minimization)
+
+When units arrive one at a time, `efron_biased_coin` (Efron 1971) sends the next
+unit to the under-represented arm with probability `p` (2/3 by default), so the
+arm-size gap stays bounded instead of growing like `sqrt(n)`.
+`pocock_simon_minimization` (Pocock & Simon 1975) balances the *margins* of
+several categorical factors at once. For each new unit it scores every arm by
+the weighted imbalance (`range`, `variance` or `sd` of per-arm counts) that the
+unit's covariate levels would have if it joined that arm. The best arm gets
+probability `p_best`. It supports more than two arms, per-factor weights, and an
+unequal `allocation_ratio`. `marginal_imbalance` reports per-level counts, so you
+can compare against complete randomization.
+
+```python
+import pandas as pd
+from experiment_design_kit import efron_biased_coin, pocock_simon_minimization
+
+coin = efron_biased_coin(200, p=2/3, seed=0)
+coin.max_abs_imbalance
+
+units = pd.DataFrame({"sex": [...], "age_band": [...], "site": [...]})   # arrival order
+res = pocock_simon_minimization(units, n_arms=2, p_best=0.8, weights={"site": 2}, seed=1)
+res.assignment, res.arm_sizes, res.imbalance["total_range"]
+```
+
 ## Sample ratio mismatch (SRM)
 
 Before reading any treatment effect, check that each arm received the
